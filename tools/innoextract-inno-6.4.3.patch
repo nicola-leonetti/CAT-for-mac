@@ -1,0 +1,57 @@
+diff --git a/src/setup/data.cpp b/src/setup/data.cpp
+index 4444ce2..9db50b9 100644
+--- a/src/setup/data.cpp
++++ b/src/setup/data.cpp
+@@ -133,6 +133,16 @@ void data_entry::load(std::istream & is, const info & i) {
+ 	
+ 	options = 0;
+ 	
++	if(i.version >= INNO_VERSION(6, 4, 3)) {
++		stored_flag_reader<flags> flagreader(is, i.version.bits());
++		flagreader.add(VersionInfoValid);
++		flagreader.add(TimeStampInUTC);
++		flagreader.add(CallInstructionOptimized);
++		flagreader.add(ChunkEncrypted);
++		flagreader.add(ChunkCompressed);
++		options |= flagreader.finalize();
++		sign = NoSetting;
++	} else {
+ 	stored_flag_reader<flags> flagreader(is, i.version.bits());
+ 	
+ 	flagreader.add(VersionInfoValid);
+@@ -181,6 +191,8 @@ void data_entry::load(std::istream & is, const info & i) {
+ 		sign = NoSetting;
+ 	}
+ 	
++	}
++	
+ 	if(options & ChunkCompressed) {
+ 		chunk.compression = i.header.compression;
+ 	} else {
+diff --git a/src/setup/header.cpp b/src/setup/header.cpp
+index bbe9df9..abc8bbd 100644
+--- a/src/setup/header.cpp
++++ b/src/setup/header.cpp
+@@ -266,6 +266,10 @@ void header::load(std::istream & is, const version & version) {
+ 		is >> util::binary_string(architectures_allowed_expr);
+ 		is >> util::binary_string(architectures_installed_in_64bit_mode_expr);
+ 	}
++	if(version >= INNO_VERSION(6, 4, 3)) {
++		std::string close_applications_filter_excludes;
++		is >> util::binary_string(close_applications_filter_excludes);
++	}
+ 	if(version >= INNO_VERSION(5, 2, 5)) {
+ 		is >> util::ansi_string(license_text);
+ 		is >> util::ansi_string(info_before);
+diff --git a/src/setup/version.cpp b/src/setup/version.cpp
+index 7f68af2..e661903 100644
+--- a/src/setup/version.cpp
++++ b/src/setup/version.cpp
+@@ -186,6 +186,7 @@ const known_version versions[] = {
+ 	{ "Inno Setup Setup Data (6.3.0)",                      INNO_VERSION_EXT(6, 3,  0, 0), version::Unicode },
+ 	{ "Inno Setup Setup Data (6.4.0)",     /* prerelease */ INNO_VERSION_EXT(6, 4,  0, 0), version::Unicode },
+ 	{ "Inno Setup Setup Data (6.4.0.1)",        /* 6.4.0 */ INNO_VERSION_EXT(6, 4,  0, 1), version::Unicode },
++	{ "Inno Setup Setup Data (6.4.3)",                      INNO_VERSION_EXT(6, 4,  3, 0), version::Unicode },
+ };
+ 
+ } // anonymous namespace

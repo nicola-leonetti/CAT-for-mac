@@ -1,0 +1,4405 @@
+
+# Purpose   : input box of a variable (scalar,matrix,vector,dataframe) and
+#             creation of a list with many properties of the variable.
+#             Some form of input in R syntax are allowed.The function first
+#             checks existence and stops in case is not veried. Then it assigns
+#             the value and maintain in the list some attributed of the user
+#             input.
+# Input     : none directly, a string through the input box with name
+#             of the variable.The function accept variable names such a:
+#              a, v, A, like scalar, whole vector, whole matrix
+#              A[1:n,],    row-wise submatrices
+#              A[,n:m],    column-wise submatrices
+#              A[c(n,m),]  subset submatrices
+#              A$name      subset dataframes
+# Output    : list with [1] input, label typed by the user
+#                       [2] name, name of the variable
+#                       [3] value, value of the variable (not done in this fun)
+#                       [4] existence,boolean TRUE if the variable already exist
+#                       [5] control 1 scalar/whole vettor/ whole matrix
+#                                   2 matrix by row
+#                                   3 matrix by column
+# Author    : Gruppo di Chemiometria
+#            (Divisione di Chimica Analitica della Societ? Chimica Italiana)
+# Programmer: GMP
+# Version   : 3.2
+# Licence   : GPL2.1
+#
+library(tcltk)
+library(RGtk2Extras)
+
+# Function that handles all cases
+extract_parts <- function(indices) {
+  if (grepl(",", indices)) {
+    # There is a comma
+    parts <- strsplit(indices, ",", fixed = TRUE)[[1]]
+    # If the string starts with a comma, add an empty string at the beginning
+    if (substr(indices, 1, 1) == ",") {
+      before <- ""
+      after <- ifelse(length(parts) > 0, parts[2], "")
+    } 
+    # If the string ends with a comma
+    else if (substr(indices, nchar(indices), nchar(indices)) == ",") {
+      before <- parts[1]
+      after <- ""
+    }
+    # Normal case
+    else {
+      before <- parts[1]
+      after <- ifelse(length(parts) > 1, parts[2], "")
+    }
+  } else {
+    # No comma
+    before <- indices
+    after <- ""
+  }
+  return(list(before = before, after = after))
+}
+
+# Extraction
+extraction <- function(strip) {
+  obj_name <- sub("\\[.*", "", strip)
+  indices <- sub(".*\\[(.*)\\]", "\\1", strip)
+  row_ind <- extract_parts(indices)$before
+  if(grepl("end", row_ind)) {
+    row_ind <- gsub("end", nrow(get(obj_name)), row_ind)
+  }
+  rows <- eval(parse(text = row_ind))
+  if(is.null(rows) || row_ind == "") {
+    rows <- 1:nrow(get(obj_name))
+  }
+  col_ind <- extract_parts(indices)$after
+  if(grepl("end", col_ind)) {
+    col_ind <- gsub("end", ncol(get(obj_name)), col_ind)
+  }
+  columns <- eval(parse(text = col_ind))
+  if(is.null(columns) || col_ind == "" || sum(is.na(columns))) {
+    columns <- 1:ncol(get(obj_name))
+  }
+  row_names <- rownames(get(obj_name))[rows]
+  col_names <- colnames(get(obj_name))[columns]
+  return(list(obj_name = obj_name, rows = rows,columns=columns, row_names = row_names, col_names = col_names))
+}
+
+pcaVarexpl<-function (X, a, center = TRUE, scale = TRUE, plot = TRUE, ...) 
+{
+    if (a < 1 || a > min(nrow(X) - 1, ncol(X))) 
+        stop("Invalid number of components, a")
+    X <- as.matrix(scale(X, center = center, scale = scale))
+    if (ncol(X) > nrow(X)) {
+        e <- eigen(X %*% t(X))
+        T <- e$vectors %*% diag(sqrt(round(e$values,7)))
+        P <- t(X) %*% T %*% diag(1/e$values)
+    }
+    else {
+        X_svd <- svd(X)
+        P <- X_svd$v
+        T <- X %*% P
+    }
+    varexpl = 1 - apply((X - T[, 1:a] %*% t(P[, 1:a]))^2, 2, 
+        sum)/apply(X^2, 2, sum)
+    if (plot) {
+        barplot(varexpl, ylab = "Explained variance", ylim = c(0, 
+            1), ...)
+    }
+    list(ExplVar = varexpl)
+}
+
+
+loadbar<-function(){
+ans<-inpboxk6(c('Chemiometry','Spectra','Database','Process Modelling','Acquisition','Thermodynamic'),rep('FALSE',6))
+if(!is.null(ans)){
+if(as.logical(ans[[1]]))source(paste(base.dir,'/mylib/chemio_tollbar.r',sep=''))
+if(as.logical(ans[[2]]))source(paste(base.dir,'/mylib/spectra_tollbar.r',sep=''))
+if(as.logical(ans[[3]]))source(paste(base.dir,'/mylib/dbase_tollbar.r',sep=''))
+if(as.logical(ans[[4]]))source(paste(base.dir,'/mylib/mod_tollbar.r',sep=''))
+if(as.logical(ans[[5]]))source(paste(base.dir,'/mylib/dataq_tollbar.r',sep=''))
+if(as.logical(ans[[6]]))source(paste(base.dir,'/mylib/ther_tollbar.r',sep=''))
+}}
+
+givedim<-function(v){
+v<-strsplit(unlist(strsplit(v, ',')),':')
+d<-NULL
+for(i in 1:length(v)){
+ if(length(v[[i]])==1)d<-c(d,as.numeric(v[[i]]))
+ else if(length(v[[i]])==2){d<-c(d,as.numeric(v[[i]][1]):as.numeric(v[[i]][2]))
+ }else{print('Wrong Input Value in Dimension Selection')}}
+return(d)}
+
+dovc<-function(d){
+	require(gplots)
+    require(grDevices)
+	require(graphics)
+	if(is.character(d)){
+		C<-factor(d)
+		nl<-levels(C)
+		n<-nlevels(C)
+		if(n<=19){
+			vcb<-c(	"black",#1
+					"red",#2
+					"green",#3
+					"blue",#4
+					"magenta",#5
+					"cyan",#6
+					"yellow",#7
+					"pink",#8
+					"brown",#9
+					"purple",#10
+					"orange",#11
+					"khaki",#12
+					"grey",#13
+					"gold",#14
+					"coral",#15
+					"beige",#16
+					"navy",#17
+					"azure",#18
+					"turquoise")#19
+			Col<-vcb[1:n]
+		}else{
+		    Col<-rainbow(n)
+		}
+		C<-as.character(C)
+		for(i in 1:n){
+			C[C==as.character(nl[i])]<-Col[i]
+		}
+	}else{
+		d<-as.numeric(d) 
+		C<-colorpanel(256,low="blue",high="red")[findInterval(d,seq(min(d),max(d),length.out=256))]
+	}
+return(list(C))
+}
+makevar<-function(input){
+ variable<-NULL                                           # build the new object
+ if(input!=''){                          # protection against "Cancel" selection
+  variable$input<-input
+  variable$name<-variable$input    #case of whole scalar vector/matrix/dataframe
+  variable$control<-1
+  if (grepl("\\$",variable$input)){                     #case of dataframe field
+   vname<-unlist(strsplit(variable$input,"\\$"))
+   variable$name<-vname[1]
+   variable$surname<-vname[2]}
+  if (grepl("\\[",variable$input)){         #case of sub vector/matrix/dataframe
+    vname<-unlist(strsplit(variable$input,"\\["))
+    variable$name<-vname[1]
+    variable$surname<-paste("[",vname[2],sep='')
+    varg<-unlist(strsplit(vname[2],"\\]"))[1]
+    varg<-unlist(strsplit(varg,"\\,"))
+    variable$control<-2
+    if(varg[1]==""){variable$control<-3}    }
+    variable$existence<-exists(variable$name)
+                                # warning box in case the variable doesn't exist
+  if (!variable$existence) {variable<-NULL
+      tk_messageBox(type = c("ok"),message='The Variable does not Exist !'
+          ,caption="Input Error")}
+                                 # value assignement in case the variable exists
+  else{
+     string<-paste("variable$value<-",variable$input)
+     eval(parse(text=string))}}
+return(variable)}
+#
+# Main function definition
+#
+gvfib<-function(lb='*Matrix Name (e.g., "A[,4:20]" or "A[,4:end]" or "A[5:end,4:end]")') {
+previous.name<-get('previous.name',envir=.GlobalEnv,mode='any')
+dialog<-gtkDialogNewWithButtons(title='Input', parent=NULL,flags=0,
+"gtk-ok",GtkResponseType["ok"],"gtk-cancel",GtkResponseType["cancel"],show=TRUE)
+hbox<-gtkHBox()
+hbox['spacing']<-10
+hbox$packStart(gtkLabel(lb))
+entry<-gtkEntryNew()
+entry$setText(previous.name)
+hbox$packStart(entry)
+vbox<-dialog$getContentArea()
+vbox$packStart(hbox)
+gSignalConnect(dialog,"response",f=function(dialog,response,user.data){
+if(response==GtkResponseType["ok"]){
+  .a <- strsplit(unlist(strsplit(entry$getText(), ',')),':')
+  if(unlist(.a[length(.a[[length(.a)]])])[length(.a[[length(.a)]])]!='end]' & 
+     unlist(.a[[1]])[length(.a[[1]])]!='end'){
+    variable<-makevar(entry$getText())}else{
+      if(unlist(.a[[1]])[length(.a[[1]])]=='end'){
+        .a[[1]][2]=nrow(get(strsplit(entry$getText(),"[",fixed = TRUE)[[1]][1]))
+        #for(i in 1:length(.a[[1]])).a[[1]]<-paste(.a[[1]][i],collapse=':')
+      }
+      .a[[1]]<-paste(.a[[1]],collapse=':')
+      if(unlist(.a[length(.a[[length(.a)]])])[length(.a[[length(.a)]])]=='end]'){
+        .a[[length(.a)]][2]=ncol(get(strsplit(entry$getText(),"[",fixed = TRUE)[[1]][1]))
+        #for(i in 1:length(.a)).a[[i]]<-paste(.a[[i]],collapse=':')
+      }
+      .a[[2]]<-paste(.a[[2]],collapse=':')
+      if(grepl(']',.a[[2]]))variable<-makevar(paste0(paste(unlist(.a[[1]]),collapse=','),',',paste(unlist(.a[[2]]))))
+      if(!grepl(']',.a[[2]]))variable<-makevar(paste0(paste(unlist(.a[[1]]),collapse=','),',',paste(unlist(.a[[2]])),']'))
+      rm(.a)
+    }
+assign('previous.name',entry$getText(),envir=.GlobalEnv)
+assign('variable',variable,envir=environment(gvfib))}else{
+assign('variable',NULL,envir=environment(gvfib))}
+gtkMainQuit()
+dialog$Destroy()})
+dialog$showAll()
+dialog$setModal(TRUE)
+gtkMain()
+return(variable)}
+
+gvfib_1<-function(lb='*Select variable (e.g., A[,4])') {
+  previous.name<-get('previous.name',envir=.GlobalEnv,mode='any')
+  dialog<-gtkDialogNewWithButtons(title='Input', parent=NULL,flags=0,
+                                  "gtk-ok",GtkResponseType["ok"],"gtk-cancel",GtkResponseType["cancel"],show=TRUE)
+  hbox<-gtkHBox()
+  hbox['spacing']<-10
+  hbox$packStart(gtkLabel(lb))
+  entry<-gtkEntryNew()
+  entry$setText(previous.name)
+  hbox$packStart(entry)
+  vbox<-dialog$getContentArea()
+  vbox$packStart(hbox)
+  gSignalConnect(dialog,"response",f=function(dialog,response,user.data){
+    if(response==GtkResponseType["ok"]){
+      variable<-makevar(entry$getText())
+      assign('previous.name',entry$getText(),envir=.GlobalEnv)
+      assign('variable',variable,envir=environment(gvfib_1))}else{
+        assign('variable',NULL,envir=environment(gvfib_1))}
+    gtkMainQuit()
+    dialog$Destroy()})
+  dialog$showAll()
+  dialog$setModal(TRUE)
+  gtkMain()
+  return(variable)}
+
+gnfib<-function(lb='*New Name:',lentry='') {
+dialog<-gtkDialogNewWithButtons(title='Input',parent=NULL,flags=0,
+"gtk-ok",GtkResponseType["ok"],"gtk-cancel",GtkResponseType["cancel"],show=TRUE)
+hbox<-gtkHBox()
+hbox['spacing']<-10
+hbox$packStart(gtkLabel(lb))
+entry<-gtkEntryNew()
+entry$setText(lentry)
+hbox$packStart(entry)
+vbox<-dialog$getContentArea()
+vbox$packStart(hbox)
+gSignalConnect(dialog,"response",f=function(dialog,response,user.data){
+ if(response==GtkResponseType["ok"])
+ assign('ans',entry$getText(),envir=environment(gnfib))
+ else
+ assign('ans',NULL,envir=environment(gnfib))
+ gtkMainQuit()
+ dialog$Destroy()})
+ dialog$showAll()
+ dialog$setModal(TRUE)
+ gtkMain()
+return(ans)}
+
+messageyesno<-function(vlabel){
+  table<-gtkTable(rows=5,columns=3,homogeneous=FALSE)
+  diag_label<-gtkLabel(vlabel)
+  diag_blank<-gtkLabel('      ')
+  submit_hbox<-gtkHBox()
+  button_yes<-gtkButton("Yes")
+  button_no<-gtkButton("No")
+  submit_hbox$packStart(button_yes,expand=TRUE)
+  submit_hbox$packEnd(button_no,expand=TRUE)
+  gSignalConnect(button_yes,"clicked",f=function(button_yes){
+    button_yes$setData('ans',list('TRUE'))
+    gtkMainQuit()
+  }
+  )
+  gSignalConnect(button_no,"clicked",f=function(button_no){
+    button_yes$setData('ans',list('FALSE'))
+    gtkMainQuit()
+  }
+  )
+  table$attach(diag_label,left.attach=0,1,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_blank,left.attach=0,3,top.attach=3,4,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(submit_hbox,left.attach=0,3,top.attach=4,5,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$setColSpacing(0,5)
+  window<-gtkWindow(show=FALSE)
+  window['border-width']<-14
+  window$setTitle('Question')
+  window$SetDeletable(FALSE)
+  window$add(table)
+  window$showAll()
+  gtkMain()
+  ans<-button_yes$GetData('ans')
+  window$Destroy()
+  return(ans)
+}
+
+inpboxceeck <- function(vlabel,vcombo1,vcombo2,vinp){
+  table<-gtkTable(rows=6,columns=2,homogeneous=FALSE)
+  
+  diag_label<-gtkVBox()
+  labelgp<-list()
+  labelgp$t1<-gtkLabel(vlabel[1])
+  labelgp$t2<-gtkLabel(vlabel[2])
+  labelgp$t3<-gtkLabel(vlabel[3])
+  labelgp$t4<-gtkLabel(vlabel[4])
+  labelgp$t5<-gtkLabel(vlabel[5])
+  
+  sapply(labelgp,diag_label$packStart)
+  
+  diag_entry<-gtkVBox()
+  combo1<-gtkComboBoxNewText()
+  sapply(vcombo1,combo1$appendText)
+  combo1$SetActive(as.integer(vinp[1]))
+  
+  entry1<-gtkEntryNew()
+  entry1$SetText(vinp[2])
+  entry2<-gtkEntryNew()
+  entry2$SetText(vinp[3])
+  
+  combo2<-gtkComboBoxNewText()
+  sapply(vcombo2,combo2$appendText)
+  combo2$SetActive(as.integer(vinp[4]))
+  
+  check1<-gtkCheckButtonNewWithLabel(label='')
+  check1$SetActive(as.logical(vinp[5]))
+  
+  diag_entry$packStart(combo1)
+  diag_entry$packStart(entry1)
+  diag_entry$packStart(entry2)
+  diag_entry$packStart(combo2)
+  diag_entry$packStart(check1)
+  
+  submit_hbox<-gtkHBox()
+  button_ok<-gtkButton("OK")
+  button_canc<-gtkButton("Cancel")
+  submit_hbox$packStart(button_ok,expand=TRUE)
+  submit_hbox$packEnd(button_canc,expand=TRUE)
+  gSignalConnect(button_ok,"clicked",f=function(button_ok){
+    ans<-list(combo1$getActive()+1,
+              entry1$getText(),
+              entry2$getText(),
+              combo2$getActive()+1,
+              gtkToggleButtonGetActive(check1))
+    assign('ans',ans,envir=environment(inpboxeeeeck))
+    gtkMainQuit()})
+  gSignalConnect(button_canc,"clicked",f=function(button_canc){
+    ans<-NULL
+    assign('ans',ans,envir=environment(inpboxeeeeck))
+    gtkMainQuit()})
+  diag_align<-gtkAlignment(xalign=0)
+  diag_align$add(diag_label)
+  diag_align1<-gtkAlignment(xalign=0)
+  diag_align1$add(diag_entry)
+  table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(submit_hbox,left.attach=0,3,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$setColSpacing(0,5)
+  window<-gtkWindow(show=FALSE)
+  window['border-width']<-14
+  window$setTitle('Input Choice')
+  window$SetDeletable(FALSE)
+  window$add(table)
+  window$showAll()
+  gtkMain()
+  window$Destroy()
+  return(ans)}
+
+inpboxcrrrr<-function(tcombo,vcombo,tradio,vradio){
+table<-gtkTable(rows=4,columns=2,homogeneous=FALSE)
+label<-gtkLabel(tcombo)
+combo<-gtkComboBoxNewText()
+sapply(vcombo,combo$appendText)
+diag_label<-gtkLabel(tradio)
+diag_radio<-gtkVBox()
+radiogp<-list()
+radiogp$t1<-gtkRadioButtonNewWithLabel(group=NULL,label=vradio[1])
+radiogp$t2<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vradio[2])
+radiogp$t3<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vradio[3])
+radiogp$t4<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vradio[4])
+sapply(radiogp,diag_radio$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(as.integer(combo$getActive())+1,
+          gtkToggleButtonGetActive(radiogp$t1),
+          gtkToggleButtonGetActive(radiogp$t2),
+          gtkToggleButtonGetActive(radiogp$t3),
+          gtkToggleButtonGetActive(radiogp$t4))
+assign('ans',ans,envir=environment(inpboxcrrrr))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxcrrrr))
+gtkMainQuit()})
+label['xalign']<-1
+diag_label['xalign']<-1
+diag_label['yalign']<-0
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_radio)
+table$attach(label,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions='')
+table$attach(combo,left.attach=1,2,top.attach=0,1,xoptions='fill',yoptions='')
+table$attach(diag_label,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions='')
+table$attach(submit_hbox,left.attach=0,4,top.attach=2,4,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxek<-function(ventry,check,vinp=c('','TRUE'),title){
+  table<-gtkTable(rows=2,columns=2,homogeneous=FALSE)
+  diag_label<-gtkVBox()
+  labelgp<-list()
+  labelgp$t1<-gtkLabel(ventry[1])
+  sapply(labelgp,diag_label$packStart)
+  diag_entry<-gtkVBox()
+  entrygp<-list()
+  entrygp$t1<-gtkEntryNew()
+  entrygp$t1$setText(get('previous.name',envir=.GlobalEnv))
+  entrygp$t1$setText(vinp[1])
+  sapply(entrygp,diag_entry$packStart)
+  diag_check<-gtkHBox()
+  checkgp<-list()
+  checkgp$t1<-gtkCheckButtonNewWithLabel(label=check)
+  checkgp$t1$SetActive(as.logical(vinp[2]))
+  sapply(checkgp,diag_check$packStart)
+  submit_hbox<-gtkHBox()
+  button_ok<-gtkButton("OK")
+  button_canc<-gtkButton("Cancel")
+  submit_hbox$packStart(button_ok,expand=TRUE)
+  submit_hbox$packEnd(button_canc,expand=TRUE)
+  gSignalConnect(button_ok,"clicked",f=function(button_ok){
+    ans<-list(entrygp$t1$getText(),
+              gtkToggleButtonGetActive(checkgp$t1))
+    assign('ans',ans,envir=environment(inpboxeek))
+    gtkMainQuit()})
+  gSignalConnect(button_canc,"clicked",f=function(button_canc){
+    ans<-NULL
+    assign('ans',ans,envir=environment(inpboxeek))
+    gtkMainQuit()})
+  diag_align<-gtkAlignment(xalign=0)
+  diag_align$add(diag_check)
+  diag_align1<-gtkAlignment(xalign=0)
+  diag_align1$add(diag_label)
+  diag_align2<-gtkAlignment(xalign=0)
+  diag_align2$add(diag_entry)
+  table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(submit_hbox,left.attach=0,2,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$setColSpacing(0,5)
+  window<-gtkWindow(show=FALSE)
+  window['border-width']<-14
+  window$setTitle(title)
+  window$SetDeletable(FALSE)
+  window$add(table)
+  window$showAll()
+  gtkMain()
+  window$Destroy()
+  return(ans)}
+
+inpboxekk<-function(tentry,tcheck,vcheck){
+table<-gtkTable(rows=3,columns=2,homogeneous=FALSE)
+label<-gtkLabel(tentry)
+entry<-gtkEntryNew()
+entry$setText(get('previous.name',envir=.GlobalEnv))
+diag_label<-gtkLabel(tcheck)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t1$SetActive(TRUE)
+checkgp$t2$SetActive(TRUE)
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2))
+assign('ans',ans,envir=environment(inpboxekk))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxekk))
+gtkMainQuit()})
+label['xalign']<-1
+diag_label['xalign']<-1
+diag_label['yalign']<-0
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_check)
+table$attach(label,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions='')
+table$attach(entry,left.attach=1,2,top.attach=0,1,xoptions='fill',yoptions='')
+table$attach(diag_label,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions='')
+table$attach(submit_hbox,left.attach=0,2,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxer2<-function(vlabel,inp){
+  table<-gtkTable(rows=4,columns=2,homogeneous=FALSE)
+  label<-gtkLabel(vlabel[1])
+  entry<-gtkEntryNew()
+  entry$setText(inp[1])
+  diag_label<-gtkLabel(vlabel[2])
+  diag_radio<-gtkVBox()
+  radiogp<-list()
+  radiogp$t1<-gtkRadioButtonNewWithLabel(group=NULL,label=vlabel[3])
+  radiogp$t2<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vlabel[4])
+  # radiogp$t3<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vlabel[5])
+  sapply(radiogp,diag_radio$packStart)
+  submit_hbox<-gtkHBox()
+  button_ok<-gtkButton("OK")
+  button_canc<-gtkButton("Cancel")
+  submit_hbox$packStart(button_ok,expand=TRUE)
+  submit_hbox$packEnd(button_canc,expand=TRUE)
+  gSignalConnect(button_ok,"clicked",f=function(button_ok){
+    button_ok$setData('ans',list(entry$getText(),
+                                 gtkToggleButtonGetActive(radiogp$t1),
+                                 gtkToggleButtonGetActive(radiogp$t2)
+    ))
+    gtkMainQuit()
+  }
+  )
+  gSignalConnect(button_canc,"clicked",f=function(button_canc){
+    button_ok$setData('ans',NULL)
+    gtkMainQuit()
+  }
+  )
+  table$attach(label,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions='')
+  table$attach(entry,left.attach=1,2,top.attach=0,1,xoptions='fill',yoptions='')
+  table$attach(diag_label,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_radio,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(submit_hbox,left.attach=0,5,top.attach=2,5,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$setColSpacing(0,5)
+  window<-gtkWindow(show=FALSE)
+  window['border-width']<-14
+  window$setTitle('Input Choice')
+  window$SetDeletable(FALSE)
+  window$add(table)
+  window$showAll()
+  gtkMain()
+  ans<-button_ok$GetData('ans')
+  window$Destroy()
+  return(ans)
+}
+
+inpboxeee<-function(tentry,tentry1,tentry2,vinp=c('','','')){
+table<-gtkTable(rows=3,columns=2,homogeneous=FALSE)
+label<-gtkLabel(tentry)
+entry<-gtkEntryNew()
+entry$setText(vinp[1])
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(tentry1)
+labelgp$t2<-gtkLabel(tentry2)
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t1$setText(vinp[2])
+entrygp$t2<-gtkEntryNew()
+entrygp$t2$setText(vinp[3])
+sapply(entrygp,diag_entry$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry$getText(),
+          entrygp$t1$getText(),
+          entrygp$t2$getText())
+assign('ans',ans,envir=environment(inpboxeee))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeee))
+gtkMainQuit()})
+label['xalign']<-1
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_entry)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+table$attach(label,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(entry,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeekk<-function(ventry,vcheck,vinp=c('','2','TRUE','TRUE')){
+table<-gtkTable(rows=3,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(ventry[1])
+labelgp$t2<-gtkLabel(ventry[2])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t2<-gtkEntryNew()
+entrygp$t1$setText(get('previous.name',envir=.GlobalEnv))
+entrygp$t1$setText(vinp[1])
+entrygp$t2$setText(vinp[2])
+sapply(entrygp,diag_entry$packStart)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t1$SetActive(as.logical(vinp[3]))
+checkgp$t2$SetActive(as.logical(vinp[4]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp$t1$getText(),
+          entrygp$t2$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2))
+assign('ans',ans,envir=environment(inpboxeekk))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeekk))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_check)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_entry)
+table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions='fill',yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions='')
+table$attach(submit_hbox,left.attach=0,2,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxee<-function(tentry,ventry){
+table<-gtkTable(rows=3,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(tentry[1])
+labelgp$t2<-gtkLabel(tentry[2])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t1$setText(ventry[1])
+entrygp$t2<-gtkEntryNew()
+entrygp$t2$setText(ventry[2])
+sapply(entrygp,diag_entry$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp$t1$getText(),
+          entrygp$t2$getText())
+assign('ans',ans,envir=environment(inpboxee))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxee))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_entry)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+table$attach(diag_align1,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxc<-function(tcombo,vcombo,inp=1){
+table<-gtkTable(rows=3,columns=2,homogeneous=FALSE)
+label<-gtkLabel(tcombo)
+combo<-gtkComboBoxNewText()
+sapply(vcombo,combo$appendText)
+combo$setActive(inp)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(as.integer(combo$getActive())+1)
+assign('ans',ans,envir=environment(inpboxc))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxc))
+gtkMainQuit()})
+label['xalign']<-1
+table$attach(label,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions='')
+table$attach(combo,left.attach=1,2,top.attach=0,1,xoptions='fill',yoptions='')
+table$attach(submit_hbox,left.attach=0,3,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxck<-function(tcombo,vcombo,tcheck,vinp=c(-1,'TRUE')){
+table<-gtkTable(rows=3,columns=2,homogeneous=FALSE)
+label<-gtkLabel(tcombo)
+combo<-gtkComboBoxNewText()
+sapply(vcombo,combo$appendText)
+combo$SetActive(as.integer(vinp[1]))
+check<-gtkCheckButtonNewWithLabel(label=tcheck)
+check$SetActive(vinp[2])
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(as.integer(combo$getActive())+1,
+           gtkToggleButtonGetActive(check))
+assign('ans',ans,envir=environment(inpboxck))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxck))
+gtkMainQuit()})
+label['xalign']<-1
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(check)
+table$attach(label,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions='')
+table$attach(combo,left.attach=1,2,top.attach=0,1,xoptions='fill',yoptions='')
+table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions='')
+table$attach(submit_hbox,left.attach=0,3,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxecece<-function(vlabel,vcombo1,vcombo2){
+table<-gtkTable(rows=6,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+combo1<-gtkComboBoxNewText()
+sapply(vcombo1,combo1$appendText)
+entry2<-gtkEntryNew()
+combo2<-gtkComboBoxNewText()
+sapply(vcombo2,combo2$appendText)
+entry3<-gtkEntryNew()
+diag_entry$packStart(entry1)
+diag_entry$packStart(combo1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(combo2)
+diag_entry$packStart(entry3)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          combo1$getActive()+1,
+          combo2$getActive()+1)
+assign('ans',ans,envir=environment(inpboxecece))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxecece))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions='',yoptions='')
+table$attach(submit_hbox,left.attach=0,3,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeece<-function(vlabel,vcombo1,vinp){
+table<-gtkTable(rows=6,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+combo1<-gtkComboBoxNewText()
+sapply(vcombo1,combo1$appendText)
+combo1$SetActive(as.integer(vinp[5]))
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(combo1)
+diag_entry$packStart(entry4)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          combo1$getActive()+1)
+assign('ans',ans,envir=environment(inpboxeeece))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeece))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions='',yoptions='')
+table$attach(submit_hbox,left.attach=0,3,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeek<-function(ventry,check,vinp=c('','2','TRUE')){
+table<-gtkTable(rows=3,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(ventry[1])
+labelgp$t2<-gtkLabel(ventry[2])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t2<-gtkEntryNew()
+entrygp$t1$setText(get('previous.name',envir=.GlobalEnv))
+entrygp$t1$setText(vinp[1])
+entrygp$t2$setText(vinp[2])
+sapply(entrygp,diag_entry$packStart)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=check)
+checkgp$t1$SetActive(as.logical(vinp[3]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp$t1$getText(),
+          entrygp$t2$getText(),
+          gtkToggleButtonGetActive(checkgp$t1))
+assign('ans',ans,envir=environment(inpboxeek))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeek))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_check)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_entry)
+table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,2,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeecekk<-function(vlabel,vcombo1,vcheck,vinp){
+table<-gtkTable(rows=8,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+labelgp$t6<-gtkLabel(vlabel[6])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+combo1<-gtkComboBoxNewText()
+sapply(vcombo1,combo1$appendText)
+combo1$SetActive(as.integer(vinp[6]))
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+entry5<-gtkEntryNew()
+entry5$SetText(vinp[5])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_entry$packStart(combo1)
+diag_entry$packStart(entry5)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t1$SetActive(as.logical(vinp[7]))
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t2$SetActive(as.logical(vinp[8]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          entry5$getText(),
+          combo1$getActive()+1,
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2))
+assign('ans',ans,envir=environment(inpboxeeecekk))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeecekk))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions='',yoptions='')
+table$attach(diag_check,left.attach=1,2,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=7,8,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeekk<-function(ventry,vcheck,vinp=c('','','2','TRUE','TRUE')){
+table<-gtkTable(rows=5,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(ventry[1])
+labelgp$t2<-gtkLabel(ventry[2])
+labelgp$t3<-gtkLabel(ventry[3])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t2<-gtkEntryNew()
+entrygp$t3<-gtkEntryNew()
+entrygp$t1$setText(get('previous.name',envir=.GlobalEnv))
+entrygp$t1$setText(vinp[1])
+entrygp$t2$setText(vinp[2])
+entrygp$t3$setText(vinp[3])
+sapply(entrygp,diag_entry$packStart)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t1$SetActive(as.logical(vinp[4]))
+checkgp$t2$SetActive(as.logical(vinp[5]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp$t1$getText(),
+          entrygp$t2$getText(),
+          entrygp$t3$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2))
+assign('ans',ans,envir=environment(inpboxeeekk))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeekk))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_check)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_entry)
+table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=1,2,top.attach=0,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=3,4,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,2,top.attach=4,5,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxrr<-function(tradio,vradio){
+table<-gtkTable(rows=2,columns=2,homogeneous=FALSE)
+diag_label<-gtkLabel(tradio)
+diag_radio<-gtkVBox()
+radiogp<-list()
+radiogp$t1<-gtkRadioButtonNewWithLabel(group=NULL,label=vradio[1])
+radiogp$t2<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vradio[2])
+sapply(radiogp,diag_radio$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(gtkToggleButtonGetActive(radiogp$t1),
+          gtkToggleButtonGetActive(radiogp$t2))
+assign('ans',ans,envir=environment(inpboxrr))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxrr))
+gtkMainQuit()})
+table$attach(diag_label,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_radio,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeerr<-function(ventry,vradio,vinp=c('','')){
+table<-gtkTable(rows=3,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(ventry[1])
+labelgp$t2<-gtkLabel(ventry[2])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t2<-gtkEntryNew()
+entrygp$t1$setText(get('previous.name',envir=.GlobalEnv))
+entrygp$t1$setText(vinp[1])
+entrygp$t2$setText(vinp[2])
+sapply(entrygp,diag_entry$packStart)
+diag_radio<-gtkVBox()
+radiogp<-list()
+radiogp$t1<-gtkRadioButtonNewWithLabel(group=NULL,label=vradio[1])
+radiogp$t2<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vradio[2])
+sapply(radiogp,diag_radio$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp$t1$getText(),
+          entrygp$t2$getText(),
+          gtkToggleButtonGetActive(radiogp$t1),
+          gtkToggleButtonGetActive(radiogp$t2))
+assign('ans',ans,envir=environment(inpboxeerr))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeerr))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_radio)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_entry)
+table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,2,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeeeekkk<-function(vlabel,vcheck,vinp,dis=TRUE){
+table<-gtkTable(rows=7,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+entry5<-gtkEntryNew()
+entry5$SetText(vinp[5])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_entry$packStart(entry5)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t1$SetActive(as.logical(vinp[6]))
+if(dis)checkgp$t1$SetSensitive(FALSE)
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t2$SetActive(as.logical(vinp[7]))
+checkgp$t3<-gtkCheckButtonNewWithLabel(label=vcheck[3])
+checkgp$t3$SetActive(as.logical(vinp[8]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          entry5$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2),
+          gtkToggleButtonGetActive(checkgp$t3))
+assign('ans',ans,envir=environment(inpboxeeeeekkk))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeeeekkk))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_check,left.attach=1,2,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxcc<-function(tcombo,vcombo1,vcombo2){
+table<-gtkTable(rows=3,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(tcombo[1])
+labelgp$t2<-gtkLabel(tcombo[2])
+sapply(labelgp,diag_label$packStart)
+diag_combo<-gtkVBox()
+combogp<-list()
+combogp$t1<-gtkComboBoxNewText()
+sapply(vcombo1,combogp$t1$appendText)
+combogp$t2<-gtkComboBoxNewText()
+sapply(vcombo2,combogp$t2$appendText)
+sapply(combogp,diag_combo$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(as.integer(combogp$t1$getActive())+1,
+          as.integer(combogp$t2$getActive())+1)
+assign('ans',ans,envir=environment(inpboxcc))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxcc))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_combo)
+table$attach(diag_align,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeeeeekk<-function(vlabel,vcheck,vinp){
+table<-gtkTable(rows=10,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+labelgp$t6<-gtkLabel(vlabel[6])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+entry5<-gtkEntryNew()
+entry5$SetText(vinp[5])
+entry6<-gtkEntryNew()
+entry6$SetText(vinp[6])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_entry$packStart(entry5)
+diag_entry$packStart(entry6)
+diag_check<-gtkVBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t1$SetActive(as.logical(vinp[7]))
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t2$SetActive(as.logical(vinp[8]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          entry5$getText(),
+          entry6$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2))
+assign('ans',ans,envir=environment(inpboxeeeeeekk))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeeeeekk))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_check,left.attach=1,2,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=9,10,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeeeee<-function(vlabel,vinp){
+  table<-gtkTable(rows=10,columns=2,homogeneous=FALSE)
+  diag_label<-gtkVBox()
+  labelgp<-list()
+  labelgp$t1<-gtkLabel(vlabel[1])
+  labelgp$t2<-gtkLabel(vlabel[2])
+  labelgp$t3<-gtkLabel(vlabel[3])
+  labelgp$t4<-gtkLabel(vlabel[4])
+  labelgp$t5<-gtkLabel(vlabel[5])
+  labelgp$t6<-gtkLabel(vlabel[6])
+  sapply(labelgp,diag_label$packStart)
+  diag_entry<-gtkVBox()
+  entry1<-gtkEntryNew()
+  entry1$SetText(vinp[1])
+  entry2<-gtkEntryNew()
+  entry2$SetText(vinp[2])
+  entry3<-gtkEntryNew()
+  entry3$SetText(vinp[3])
+  entry4<-gtkEntryNew()
+  entry4$SetText(vinp[4])
+  entry5<-gtkEntryNew()
+  entry5$SetText(vinp[5])
+  entry6<-gtkEntryNew()
+  entry6$SetText(vinp[6])
+  diag_entry$packStart(entry1)
+  diag_entry$packStart(entry2)
+  diag_entry$packStart(entry3)
+  diag_entry$packStart(entry4)
+  diag_entry$packStart(entry5)
+  diag_entry$packStart(entry6)
+  diag_check<-gtkVBox()
+  submit_hbox<-gtkHBox()
+  button_ok<-gtkButton("OK")
+  button_canc<-gtkButton("Cancel")
+  submit_hbox$packStart(button_ok,expand=TRUE)
+  submit_hbox$packEnd(button_canc,expand=TRUE)
+  gSignalConnect(button_ok,"clicked",f=function(button_ok){
+    ans<-list(entry1$getText(),
+              entry2$getText(),
+              entry3$getText(),
+              entry4$getText(),
+              entry5$getText(),
+              entry6$getText())
+    assign('ans',ans,envir=environment(inpboxeeeeeekk))
+    gtkMainQuit()})
+  gSignalConnect(button_canc,"clicked",f=function(button_canc){
+    ans<-NULL
+    assign('ans',ans,envir=environment(inpboxeeeeeekk))
+    gtkMainQuit()})
+  diag_align<-gtkAlignment(xalign=0)
+  diag_align$add(diag_label)
+  diag_align1<-gtkAlignment(xalign=0)
+  diag_align1$add(diag_entry)
+  table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(submit_hbox,left.attach=0,3,top.attach=9,10,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$setColSpacing(0,5)
+  window<-gtkWindow(show=FALSE)
+  window['border-width']<-14
+  window$setTitle('Input Choice')
+  window$SetDeletable(FALSE)
+  window$add(table)
+  window$showAll()
+  gtkMain()
+  window$Destroy()
+  return(ans)}
+
+inpboxeeeeeeekk<-function(vlabel,vcheck,vinp){
+table<-gtkTable(rows=11,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+labelgp$t6<-gtkLabel(vlabel[6])
+labelgp$t7<-gtkLabel(vlabel[7])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+entry5<-gtkEntryNew()
+entry5$SetText(vinp[5])
+entry6<-gtkEntryNew()
+entry6$SetText(vinp[7])
+entry7<-gtkEntryNew()
+entry7$SetText(vinp[7])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_entry$packStart(entry5)
+diag_entry$packStart(entry6)
+diag_entry$packStart(entry7)
+diag_check<-gtkVBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t1$SetActive(as.logical(vinp[8]))
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t2$SetActive(as.logical(vinp[9]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          entry5$getText(),
+          entry6$getText(),
+          entry7$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2))
+assign('ans',ans,envir=environment(inpboxeeeeeeekk))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeeeeeekk))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_check,left.attach=1,2,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=9,10,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeeekk<-function(vlabel,vcheck,vinp){
+table<-gtkTable(rows=7,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+entry5<-gtkEntryNew()
+entry5$SetText(vinp[5])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_check<-gtkVBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t1$SetActive(as.logical(vinp[5]))
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t2$SetActive(as.logical(vinp[6]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2))
+assign('ans',ans,envir=environment(inpboxeeeekk))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeeekk))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_check,left.attach=1,2,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeek<-function(ventry,vcheck,vinp=c('','','2','TRUE')){
+table<-gtkTable(rows=4,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(ventry[1])
+labelgp$t2<-gtkLabel(ventry[2])
+labelgp$t3<-gtkLabel(ventry[3])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t2<-gtkEntryNew()
+entrygp$t3<-gtkEntryNew()
+entrygp$t1$setText(vinp[1])
+entrygp$t2$setText(vinp[2])
+entrygp$t3$setText(vinp[3])
+sapply(entrygp,diag_entry$packStart)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t1$SetActive(as.logical(vinp[4]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp$t1$getText(),
+          entrygp$t2$getText(),
+          entrygp$t3$getText(),
+          gtkToggleButtonGetActive(checkgp$t1))
+assign('ans',ans,envir=environment(inpboxeeek))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeek))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_check)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_entry)
+table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,2,top.attach=3,4,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeeek<-function(ventry,vcheck,vinp=c('','','','','TRUE')){
+table<-gtkTable(rows=5,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(ventry[1])
+labelgp$t2<-gtkLabel(ventry[2])
+labelgp$t3<-gtkLabel(ventry[3])
+labelgp$t4<-gtkLabel(ventry[4])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t2<-gtkEntryNew()
+entrygp$t3<-gtkEntryNew()
+entrygp$t4<-gtkEntryNew()
+entrygp$t1$setText(vinp[1])
+entrygp$t2$setText(vinp[2])
+entrygp$t3$setText(vinp[3])
+entrygp$t4$setText(vinp[4])
+sapply(entrygp,diag_entry$packStart)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t1$SetActive(as.logical(vinp[5]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp$t1$getText(),
+          entrygp$t2$getText(),
+          entrygp$t3$getText(),
+          entrygp$t4$getText(),
+          gtkToggleButtonGetActive(checkgp$t1))
+assign('ans',ans,envir=environment(inpboxeeeek))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeeek))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_check)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_entry)
+table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,2,top.attach=4,5,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeeekkk<-function(vlabel,vcheck,vinp){
+table<-gtkTable(rows=7,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t1$SetActive(as.logical(vinp[5]))
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t2$SetActive(as.logical(vinp[6]))
+checkgp$t3<-gtkCheckButtonNewWithLabel(label=vcheck[3])
+checkgp$t3$SetActive(as.logical(vinp[7]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2),
+          gtkToggleButtonGetActive(checkgp$t3))
+assign('ans',ans,envir=environment(inpboxeeeekkk))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeeekkk))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_check,left.attach=1,2,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeeerr<-function(ventry,vradio,vinp=c('','','','','TRUE','FALSE')){
+table<-gtkTable(rows=5,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(ventry[1])
+labelgp$t2<-gtkLabel(ventry[2])
+labelgp$t3<-gtkLabel(ventry[3])
+labelgp$t4<-gtkLabel(ventry[4])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t2<-gtkEntryNew()
+entrygp$t3<-gtkEntryNew()
+entrygp$t4<-gtkEntryNew()
+entrygp$t1$setText(vinp[1])
+entrygp$t2$setText(vinp[2])
+entrygp$t3$setText(vinp[3])
+entrygp$t4$setText(vinp[4])
+sapply(entrygp,diag_entry$packStart)
+diag_radio<-gtkHBox()
+radiogp<-list()
+radiogp$t1<-gtkRadioButtonNewWithLabel(group=NULL,label=vradio[1])
+radiogp$t2<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vradio[2])
+sapply(radiogp,diag_radio$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp$t1$getText(),
+          entrygp$t2$getText(),
+          entrygp$t3$getText(),
+          entrygp$t4$getText(),
+          gtkToggleButtonGetActive(radiogp$t1),
+          gtkToggleButtonGetActive(radiogp$t2))
+assign('ans',ans,envir=environment(inpboxeeeerr))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeeerr))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_radio)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_entry)
+table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,2,top.attach=4,5,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeeee<-function(vlabel,vinp){
+table<-gtkTable(rows=7,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+entry5<-gtkEntryNew()
+entry5$SetText(vinp[5])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_entry$packStart(entry5)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          entry5$getText())
+assign('ans',ans,envir=environment(inpboxeeeee))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeeee))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxcrr<-function(tcombo,vcombo,tradio,vradio){
+table<-gtkTable(rows=4,columns=2,homogeneous=FALSE)
+label<-gtkLabel(tcombo)
+combo<-gtkComboBoxNewText()
+sapply(vcombo,combo$appendText)
+combo$setActive(0)
+diag_label<-gtkLabel(tradio)
+diag_radio<-gtkVBox()
+radiogp<-list()
+radiogp$t1<-gtkRadioButtonNewWithLabel(group=NULL,label=vradio[1])
+radiogp$t2<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vradio[2])
+sapply(radiogp,diag_radio$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(as.integer(combo$getActive())+1,
+          gtkToggleButtonGetActive(radiogp$t1),
+          gtkToggleButtonGetActive(radiogp$t2))
+assign('ans',ans,envir=environment(inpboxcrr))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxcrr))
+gtkMainQuit()})
+table$attach(label,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(combo,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_label,left.attach=0,1,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_radio,left.attach=1,2,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,2,top.attach=3,4,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeekk<-function(ventry,vcheck,vinp=c('','','2','TRUE','TRUE')){
+table<-gtkTable(rows=4,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(ventry[1])
+labelgp$t2<-gtkLabel(ventry[2])
+labelgp$t3<-gtkLabel(ventry[3])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t2<-gtkEntryNew()
+entrygp$t3<-gtkEntryNew()
+entrygp$t1$setText(get('previous.name',envir=.GlobalEnv))
+entrygp$t1$setText(vinp[1])
+entrygp$t2$setText(vinp[2])
+entrygp$t3$setText(vinp[3])
+sapply(entrygp,diag_entry$packStart)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t1$SetActive(as.logical(vinp[4]))
+checkgp$t2$SetActive(as.logical(vinp[5]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp$t1$getText(),
+          entrygp$t2$getText(),
+          entrygp$t3$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2))
+assign('ans',ans,envir=environment(inpboxeeekk))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeekk))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_check)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_entry)
+table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions='')
+table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions='fill',yoptions='')
+table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions='')
+table$attach(submit_hbox,left.attach=0,2,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeee<-function(vlabel,vinp){
+table<-gtkTable(rows=5,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText())
+assign('ans',ans,envir=environment(inpboxeeee))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeee))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeec<-function(vlabel,vcombo1,vinp){
+table<-gtkTable(rows=5,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+combo1<-gtkComboBoxNewText()
+sapply(vcombo1,combo1$appendText)
+combo1$SetActive(as.integer(vinp[5]))
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(combo1)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          combo1$getActive()+1)
+assign('ans',ans,envir=environment(inpboxeeec))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeec))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions='',yoptions='')
+table$attach(submit_hbox,left.attach=0,3,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeec<-function(vlabel,vcombo1,vinp){
+table<-gtkTable(rows=5,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+combo1<-gtkComboBoxNewText()
+sapply(vcombo1,combo1$appendText)
+combo1$SetActive(as.integer(vinp[4]))
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(combo1)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          combo1$getActive()+1)
+assign('ans',ans,envir=environment(inpboxeec))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeec))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions='',yoptions='')
+table$attach(submit_hbox,left.attach=0,3,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxlist<-function(vnames,ltitle){
+DF<-as.data.frame(vnames)
+vspec<-rep(FALSE,nrow(DF))
+model<-rGtkDataFrame(cbind(DF,.toggle=vspec))
+view<-gtkTreeView()
+cell_renderer<-gtkCellRendererToggle()
+view$insertColumnWithAttributes(0,"",cell_renderer,active=ncol(DF))
+gSignalConnect(cell_renderer,"toggled",function(cell_renderer,path,user.data){
+      view<-user.data
+      row<-as.numeric(path)+1
+      model<-view$getModel()
+      n<-dim(model)[2]
+      model[row,n]<-!model[row,n]},data=view)
+mapply(view$insertColumnWithAttributes,-1,title=c(ltitle),list(gtkCellRendererText()),text=seq_along(DF)-1L)
+view$setModel(model)
+button_ok<-gtkButton("OK")
+gSignalConnect(button_ok,"clicked",function(button_ok,data){
+view<-data
+model<-view$getModel()
+ans<-model[model[,ncol(model)],-ncol(model),drop=FALSE]
+assign('ans',ans,envir=environment(inpboxlist))
+gtkMainQuit()},data=view)
+button_cn<-gtkButton("Cancel")
+gSignalConnect(button_cn,"clicked",function(button_cn,data){
+assign('ans',FALSE,envir=environment(inpboxlist))
+gtkMainQuit()})
+window<-gtkWindow(show=FALSE)
+window$setTitle("Selection form a list")
+window$setSizeRequest(300,300)
+hbox<-gtkHBox()
+hbox$packStart(button_ok,expand=TRUE,fill=TRUE)
+hbox$packStart(button_cn,expand=TRUE,fill=TRUE)
+vbox<-gtkVBox();window$add(vbox)
+scrolled_window<-gtkScrolledWindow()
+vbox$packStart(scrolled_window,expand=TRUE,fill=TRUE)
+scrolled_window$add(view)
+scrolled_window$setPolicy("automatic","automatic")
+vbox$packStart(hbox,expand=FALSE,fill=FALSE)
+window$show()
+gtkMain()
+window$Destroy()
+ans<-as.numeric(row.names(ans))
+return(ans)}
+
+inpboxcrrr<-function(tcombo,vcombo,tradio,vradio){
+table<-gtkTable(rows=5,columns=2,homogeneous=FALSE)
+label<-gtkLabel(tcombo)
+combo<-gtkComboBoxNewText()
+sapply(vcombo,combo$appendText)
+diag_label<-gtkLabel(tradio)
+diag_radio<-gtkVBox()
+radiogp<-list()
+radiogp$t1<-gtkRadioButtonNewWithLabel(group=NULL,label=vradio[1])
+radiogp$t2<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vradio[2])
+radiogp$t3<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vradio[3])
+sapply(radiogp,diag_radio$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(as.integer(combo$getActive())+1,
+          gtkToggleButtonGetActive(radiogp$t1),
+          gtkToggleButtonGetActive(radiogp$t2),
+          gtkToggleButtonGetActive(radiogp$t3))
+assign('ans',ans,envir=environment(inpboxcrrr))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxcrrr))
+gtkMainQuit()})
+table$attach(label,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions='')
+table$attach(combo,left.attach=1,2,top.attach=0,1,xoptions='fill',yoptions='')
+table$attach(diag_label,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_radio,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,5,top.attach=2,5,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxleeeleeeleerr<-function(ventry,vlabel,vradio,vinp=c('','')){
+table<-gtkTable(rows=14,columns=2,homogeneous=FALSE)
+tlabel1<-gtkLabel(vlabel[1])
+diag1_label<-gtkVBox()
+labelgp1<-list()
+labelgp1$t1<-gtkLabel(ventry[1])
+labelgp1$t2<-gtkLabel(ventry[2])
+labelgp1$t3<-gtkLabel(ventry[3])
+sapply(labelgp1,diag1_label$packStart)
+diag1_entry<-gtkVBox()
+entrygp1<-list()
+entrygp1$t1<-gtkEntryNew()
+entrygp1$t2<-gtkEntryNew()
+entrygp1$t3<-gtkEntryNew()
+entrygp1$t1$setText(vinp[1])
+entrygp1$t2$setText(vinp[2])
+entrygp1$t3$setText(vinp[3])
+sapply(entrygp1,diag1_entry$packStart)
+tlabel2<-gtkLabel(vlabel[2])
+diag2_label<-gtkVBox()
+labelgp2<-list()
+labelgp2$t1<-gtkLabel(ventry[4])
+labelgp2$t2<-gtkLabel(ventry[5])
+labelgp2$t3<-gtkLabel(ventry[6])
+sapply(labelgp2,diag2_label$packStart)
+diag2_entry<-gtkVBox()
+entrygp2<-list()
+entrygp2$t1<-gtkEntryNew()
+entrygp2$t2<-gtkEntryNew()
+entrygp2$t3<-gtkEntryNew()
+entrygp2$t1$setText(vinp[4])
+entrygp2$t2$setText(vinp[5])
+entrygp2$t3$setText(vinp[6])
+sapply(entrygp2,diag2_entry$packStart)
+tlabel3<-gtkLabel(vlabel[3])
+diag3_label<-gtkVBox()
+labelgp3<-list()
+labelgp3$t1<-gtkLabel(ventry[7])
+labelgp3$t2<-gtkLabel(ventry[8])
+sapply(labelgp3,diag3_label$packStart)
+diag3_entry<-gtkVBox()
+entrygp3<-list()
+entrygp3$t1<-gtkEntryNew()
+entrygp3$t2<-gtkEntryNew()
+entrygp3$t1$setText(vinp[7])
+entrygp3$t2$setText(vinp[8])
+sapply(entrygp3,diag3_entry$packStart)
+diag_radio<-gtkVBox()
+radiogp<-list()
+radiogp$t1<-gtkRadioButtonNewWithLabel(group=NULL,label=vradio[1])
+radiogp$t2<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vradio[2])
+sapply(radiogp,diag_radio$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp1$t1$getText(),
+          entrygp1$t2$getText(),
+          entrygp1$t3$getText(),
+          entrygp2$t1$getText(),
+          entrygp2$t2$getText(),
+          entrygp2$t3$getText(),
+          entrygp3$t1$getText(),
+          entrygp3$t2$getText(),
+         gtkToggleButtonGetActive(radiogp$t1),
+          gtkToggleButtonGetActive(radiogp$t2))
+assign('ans',ans,envir=environment(inpboxleeeleeeleerr))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxleeeleeeleerr))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_radio)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag1_label)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag1_entry)
+diag_align3<-gtkAlignment(xalign=0)
+diag_align3$add(diag2_label)
+diag_align4<-gtkAlignment(xalign=0)
+diag_align4$add(diag2_entry)
+diag_align5<-gtkAlignment(xalign=0)
+diag_align5$add(diag3_label)
+diag_align6<-gtkAlignment(xalign=0)
+diag_align6$add(diag3_entry)
+table$attach(tlabel1,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(tlabel2,left.attach=1,2,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align3,left.attach=0,1,top.attach=3,4,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align4,left.attach=1,2,top.attach=3,4,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(tlabel3,left.attach=1,2,top.attach=4,5,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align5,left.attach=0,1,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align6,left.attach=1,2,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,2,top.attach=7,8,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxec<-function(vlabel,vcombo,vinp){
+table<-gtkTable(rows=6,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry<-gtkEntryNew()
+entry$setText(vinp)
+combo<-gtkComboBoxNewText()
+sapply(vcombo,combo$appendText)
+diag_entry$packStart(entry)
+diag_entry$packStart(combo)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry$getText(),
+          combo$getActive()+1)
+assign('ans',ans,envir=environment(inpboxec))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxec))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions='',yoptions='')
+table$attach(submit_hbox,left.attach=0,3,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeeeeerr<-function(vlabel,vradio,vinp){
+table<-gtkTable(rows=10,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+labelgp$t6<-gtkLabel(vlabel[6])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+entry5<-gtkEntryNew()
+entry5$SetText(vinp[5])
+entry6<-gtkEntryNew()
+entry6$SetText(vinp[6])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_entry$packStart(entry5)
+diag_entry$packStart(entry6)
+diag_radio<-gtkVBox()
+radiogp<-list()
+radiogp$t1<-gtkRadioButtonNewWithLabel(group=NULL,label=vradio[1])
+radiogp$t2<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vradio[2])
+sapply(radiogp,diag_radio$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          entry5$getText(),
+          entry6$getText(),
+          gtkToggleButtonGetActive(radiogp$t1),
+          gtkToggleButtonGetActive(radiogp$t2))
+assign('ans',ans,envir=environment(inpboxeeeeeerr))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeeeeerr))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_radio,left.attach=1,2,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=9,10,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeeeeeerr<-function(vlabel,vradio,vinp){
+table<-gtkTable(rows=11,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+labelgp$t6<-gtkLabel(vlabel[6])
+labelgp$t7<-gtkLabel(vlabel[7])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+entry5<-gtkEntryNew()
+entry5$SetText(vinp[5])
+entry6<-gtkEntryNew()
+entry6$SetText(vinp[6])
+entry7<-gtkEntryNew()
+entry7$SetText(vinp[7])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_entry$packStart(entry5)
+diag_entry$packStart(entry6)
+diag_entry$packStart(entry7)
+diag_radio<-gtkVBox()
+radiogp<-list()
+radiogp$t1<-gtkRadioButtonNewWithLabel(group=NULL,label=vradio[1])
+radiogp$t2<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vradio[2])
+sapply(radiogp,diag_radio$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          entry5$getText(),
+          entry6$getText(),
+          entry7$getText(),
+          gtkToggleButtonGetActive(radiogp$t1),
+          gtkToggleButtonGetActive(radiogp$t2))
+assign('ans',ans,envir=environment(inpboxeeeeeeerr))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeeeeeerr))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_radio,left.attach=1,2,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=9,10,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxk6<-function(vcheck,vinp){
+table<-gtkTable(rows=8,columns=2,homogeneous=FALSE)
+diag_check<-gtkVBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t1$SetActive(as.logical(vinp[1]))
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t2$SetActive(as.logical(vinp[2]))
+checkgp$t3<-gtkCheckButtonNewWithLabel(label=vcheck[3])
+checkgp$t3$SetActive(as.logical(vinp[3]))
+checkgp$t4<-gtkCheckButtonNewWithLabel(label=vcheck[4])
+checkgp$t4$SetActive(as.logical(vinp[4]))
+checkgp$t5<-gtkCheckButtonNewWithLabel(label=vcheck[5])
+checkgp$t5$SetActive(as.logical(vinp[5]))
+checkgp$t6<-gtkCheckButtonNewWithLabel(label=vcheck[6])
+checkgp$t6$SetActive(as.logical(vinp[6]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2),
+          gtkToggleButtonGetActive(checkgp$t3),
+          gtkToggleButtonGetActive(checkgp$t4),
+          gtkToggleButtonGetActive(checkgp$t5),
+          gtkToggleButtonGetActive(checkgp$t6))
+assign('ans',ans,envir=environment(inpboxk6))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxk6))
+gtkMainQuit()})
+table$attach(diag_check,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,1,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Loading Bar Table')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpbox6k6k6e<-function(vcheck1,vcheck2,vlabel,ncheck1,ncheck2,nlabel){
+table<-gtkTable(rows=11,columns=8,homogeneous=FALSE)
+label_hbox<-gtkHBox()
+mainlab1<-gtkLabel('Input')
+mainlab2<-gtkLabel('Output')
+label_hbox$packStart(mainlab1,expand=TRUE)
+label_hbox$packEnd(mainlab2,expand=TRUE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+labelgp$t6<-gtkLabel(vlabel[6])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+gtkEntrySetMaxLength(entrygp$t1,3)
+entrygp$t1$SetText(nlabel[1])
+entrygp$t2<-gtkEntryNew()
+gtkEntrySetMaxLength(entrygp$t2,3)
+entrygp$t2$SetText(nlabel[2])
+entrygp$t3<-gtkEntryNew()
+gtkEntrySetMaxLength(entrygp$t3,3)
+entrygp$t3$SetText(nlabel[3])
+entrygp$t4<-gtkEntryNew()
+gtkEntrySetMaxLength(entrygp$t4,3)
+entrygp$t4$SetText(nlabel[4])
+entrygp$t5<-gtkEntryNew()
+gtkEntrySetMaxLength(entrygp$t5,3)
+entrygp$t5$SetText(nlabel[5])
+entrygp$t6<-gtkEntryNew()
+gtkEntrySetMaxLength(entrygp$t6,3)
+entrygp$t6$SetText(nlabel[6])
+sapply(entrygp,diag_entry$packStart)
+diag_check1<-gtkVBox()
+check1gp<-list()
+check1gp$t1<-gtkCheckButtonNewWithLabel(label=vcheck1[1])
+check1gp$t1$SetActive(as.logical(ncheck1[1]))
+check1gp$t2<-gtkCheckButtonNewWithLabel(label=vcheck1[2])
+check1gp$t2$SetActive(as.logical(ncheck1[2]))
+check1gp$t3<-gtkCheckButtonNewWithLabel(label=vcheck1[3])
+check1gp$t3$SetActive(as.logical(ncheck1[3]))
+check1gp$t4<-gtkCheckButtonNewWithLabel(label=vcheck1[4])
+check1gp$t4$SetActive(as.logical(ncheck1[4]))
+check1gp$t5<-gtkCheckButtonNewWithLabel(label=vcheck1[5])
+check1gp$t5$SetActive(as.logical(ncheck1[5]))
+check1gp$t6<-gtkCheckButtonNewWithLabel(label=vcheck1[6])
+check1gp$t6$SetActive(as.logical(ncheck1[6]))
+sapply(check1gp,diag_check1$packStart)
+diag_check2<-gtkVBox()
+check2gp<-list()
+check2gp$t1<-gtkCheckButtonNewWithLabel(label=vcheck2[1])
+check2gp$t1$SetActive(as.logical(ncheck2[1]))
+check2gp$t2<-gtkCheckButtonNewWithLabel(label=vcheck2[2])
+check2gp$t2$SetActive(as.logical(ncheck2[2]))
+check2gp$t3<-gtkCheckButtonNewWithLabel(label=vcheck2[3])
+check2gp$t3$SetActive(as.logical(ncheck2[3]))
+check2gp$t4<-gtkCheckButtonNewWithLabel(label=vcheck2[4])
+check2gp$t4$SetActive(as.logical(ncheck2[4]))
+check2gp$t5<-gtkCheckButtonNewWithLabel(label=vcheck2[5])
+check2gp$t5$SetActive(as.logical(ncheck2[5]))
+check2gp$t6<-gtkCheckButtonNewWithLabel(label=vcheck2[6])
+check2gp$t6$SetActive(as.logical(ncheck2[6]))
+sapply(check2gp,diag_check2$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(c(gtkToggleButtonGetActive(check1gp$t1),
+            gtkToggleButtonGetActive(check1gp$t2),
+            gtkToggleButtonGetActive(check1gp$t2),
+            gtkToggleButtonGetActive(check1gp$t4),
+            gtkToggleButtonGetActive(check1gp$t5),
+            gtkToggleButtonGetActive(check1gp$t6)),
+          c(gtkToggleButtonGetActive(check2gp$t1),
+            gtkToggleButtonGetActive(check2gp$t2),
+            gtkToggleButtonGetActive(check2gp$t2),
+            gtkToggleButtonGetActive(check2gp$t4),
+            gtkToggleButtonGetActive(check2gp$t5),
+            gtkToggleButtonGetActive(check2gp$t6)),
+          c(entrygp$t1$getText(),
+            entrygp$t2$getText(),
+            entrygp$t3$getText(),
+            entrygp$t4$getText(),
+            entrygp$t5$getText(),
+            entrygp$t6$getText()))
+assign('ans',ans,envir=environment(inpbox6k6k6e))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpbox6k6k6e))
+gtkMainQuit()})
+diag_alignl<-gtkAlignment(xalign=0)
+diag_alignl$add(diag_label)
+diag_aligne<-gtkAlignment(xalign=0)
+diag_aligne$add(diag_entry)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_check1)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_check2)
+table$attach(label_hbox,left.attach=0,4,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=3,4,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_alignl,left.attach=5,7,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_aligne,left.attach=7,8,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,8,top.attach=10,11,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Analog I/O')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpbox7k7k<-function(vcheck1,vcheck2,ncheck1,ncheck2){
+table<-gtkTable(rows=11,columns=4,homogeneous=FALSE)
+label_hbox<-gtkHBox()
+mainlab1<-gtkLabel('Input')
+mainlab2<-gtkLabel('Output')
+label_hbox$packStart(mainlab1,expand=TRUE)
+label_hbox$packEnd(mainlab2,expand=TRUE)
+diag_label<-gtkVBox()
+diag_check1<-gtkVBox()
+check1gp<-list()
+check1gp$t1<-gtkCheckButtonNewWithLabel(label=vcheck1[1])
+check1gp$t1$SetActive(as.logical(ncheck1[1]))
+check1gp$t2<-gtkCheckButtonNewWithLabel(label=vcheck1[2])
+check1gp$t2$SetActive(as.logical(ncheck1[2]))
+check1gp$t3<-gtkCheckButtonNewWithLabel(label=vcheck1[3])
+check1gp$t3$SetActive(as.logical(ncheck1[3]))
+check1gp$t4<-gtkCheckButtonNewWithLabel(label=vcheck1[4])
+check1gp$t4$SetActive(as.logical(ncheck1[4]))
+check1gp$t5<-gtkCheckButtonNewWithLabel(label=vcheck1[5])
+check1gp$t5$SetActive(as.logical(ncheck1[5]))
+check1gp$t6<-gtkCheckButtonNewWithLabel(label=vcheck1[6])
+check1gp$t6$SetActive(as.logical(ncheck1[6]))
+check1gp$t7<-gtkCheckButtonNewWithLabel(label=vcheck1[7])
+check1gp$t7$SetActive(as.logical(ncheck1[7]))
+sapply(check1gp,diag_check1$packStart)
+diag_check2<-gtkVBox()
+check2gp<-list()
+check2gp$t1<-gtkCheckButtonNewWithLabel(label=vcheck2[1])
+check2gp$t1$SetActive(as.logical(ncheck2[1]))
+check2gp$t2<-gtkCheckButtonNewWithLabel(label=vcheck2[2])
+check2gp$t2$SetActive(as.logical(ncheck2[2]))
+check2gp$t3<-gtkCheckButtonNewWithLabel(label=vcheck2[3])
+check2gp$t3$SetActive(as.logical(ncheck2[3]))
+check2gp$t4<-gtkCheckButtonNewWithLabel(label=vcheck2[4])
+check2gp$t4$SetActive(as.logical(ncheck2[4]))
+check2gp$t5<-gtkCheckButtonNewWithLabel(label=vcheck2[5])
+check2gp$t5$SetActive(as.logical(ncheck2[5]))
+check2gp$t6<-gtkCheckButtonNewWithLabel(label=vcheck2[6])
+check2gp$t6$SetActive(as.logical(ncheck2[6]))
+check2gp$t7<-gtkCheckButtonNewWithLabel(label=vcheck2[7])
+check2gp$t7$SetActive(as.logical(ncheck2[7]))
+sapply(check2gp,diag_check2$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(c(gtkToggleButtonGetActive(check1gp$t1),
+            gtkToggleButtonGetActive(check1gp$t2),
+            gtkToggleButtonGetActive(check1gp$t2),
+            gtkToggleButtonGetActive(check1gp$t4),
+            gtkToggleButtonGetActive(check1gp$t5),
+            gtkToggleButtonGetActive(check1gp$t6),
+            gtkToggleButtonGetActive(check1gp$t7)),
+          c(gtkToggleButtonGetActive(check2gp$t1),
+            gtkToggleButtonGetActive(check2gp$t2),
+            gtkToggleButtonGetActive(check2gp$t2),
+            gtkToggleButtonGetActive(check2gp$t4),
+            gtkToggleButtonGetActive(check2gp$t5),
+            gtkToggleButtonGetActive(check2gp$t6),
+            gtkToggleButtonGetActive(check2gp$t7)))
+assign('ans',ans,envir=environment(inpbox6k6k6e))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpbox6k6k6e))
+gtkMainQuit()})
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_check1)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_check2)
+table$attach(label_hbox,left.attach=0,4,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=3,4,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,4,top.attach=10,11,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Digital I/O')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxe1k1<-function(ventry,vcheck,vinp){
+  table<-gtkTable(rows=9,columns=2,homogeneous=FALSE)
+  diag_label<-gtkVBox()
+  labelgp<-list()
+  labelgp$t1<-gtkLabel(ventry[1])
+  sapply(labelgp,diag_label$packStart)
+  diag_entry<-gtkVBox()
+  entrygp<-list()
+  entrygp$t1<-gtkEntryNew()
+  entrygp$t1$setText(vinp[1])
+  sapply(entrygp,diag_entry$packStart)
+  diag_check<-gtkHBox()
+  checkgp<-list()
+  checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+  checkgp$t1$SetActive(as.logical(vinp[3]))
+  sapply(checkgp,diag_check$packStart)
+  submit_hbox<-gtkHBox()
+  button_ok<-gtkButton("OK")
+  button_canc<-gtkButton("Cancel")
+  submit_hbox$packStart(button_ok,expand=TRUE)
+  submit_hbox$packEnd(button_canc,expand=TRUE)
+  gSignalConnect(button_ok,"clicked",f=function(button_ok){
+    ans<-list(entrygp$t1$getText(),
+              gtkToggleButtonGetActive(checkgp$t1))
+    assign('ans',ans,envir=environment(inpboxe7k1))
+    gtkMainQuit()})
+  gSignalConnect(button_canc,"clicked",f=function(button_canc){
+    ans<-NULL
+    assign('ans',ans,envir=environment(inpboxe7k1))
+    gtkMainQuit()})
+  diag_align<-gtkAlignment(xalign=0)
+  diag_align$add(diag_check)
+  diag_align1<-gtkAlignment(xalign=0)
+  diag_align1$add(diag_label)
+  diag_align2<-gtkAlignment(xalign=0)
+  diag_align2$add(diag_entry)
+  table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(submit_hbox,left.attach=0,2,top.attach=7,8,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$setColSpacing(0,5)
+  window<-gtkWindow(show=FALSE)
+  window['border-width']<-14
+  window$setTitle('Input Choice')
+  window$SetDeletable(FALSE)
+  window$add(table)
+  window$showAll()
+  gtkMain()
+  window$Destroy()
+  return(ans)}
+
+
+inpboxe3k2<-function(ventry,vcheck,vinp){
+table<-gtkTable(rows=6,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(ventry[1])
+labelgp$t2<-gtkLabel(ventry[2])
+labelgp$t3<-gtkLabel(ventry[3])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t2<-gtkEntryNew()
+entrygp$t3<-gtkEntryNew()
+entrygp$t1$setText(vinp[1])
+entrygp$t2$setText(vinp[2])
+entrygp$t3$setText(vinp[3])
+sapply(entrygp,diag_entry$packStart)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t1$SetActive(as.logical(vinp[5]))
+checkgp$t2$SetActive(as.logical(vinp[6]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp$t1$getText(),
+          entrygp$t2$getText(),
+          entrygp$t3$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2))
+assign('ans',ans,envir=environment(inpboxe3k2))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxe3k2))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_check)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_entry)
+table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,2,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxe4k1<-function(ventry,vcheck,vinp){
+table<-gtkTable(rows=6,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(ventry[1])
+labelgp$t2<-gtkLabel(ventry[2])
+labelgp$t3<-gtkLabel(ventry[3])
+labelgp$t4<-gtkLabel(ventry[4])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t2<-gtkEntryNew()
+entrygp$t3<-gtkEntryNew()
+entrygp$t4<-gtkEntryNew()
+entrygp$t1$setText(vinp[1])
+entrygp$t2$setText(vinp[2])
+entrygp$t3$setText(vinp[3])
+entrygp$t4$setText(vinp[4])
+sapply(entrygp,diag_entry$packStart)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+
+checkgp$t1$SetActive(as.logical(vinp[5]))
+
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp$t1$getText(),
+          entrygp$t2$getText(),
+          entrygp$t3$getText(),
+          entrygp$t4$getText(),
+          gtkToggleButtonGetActive(checkgp$t1)
+
+)
+assign('ans',ans,envir=environment(inpboxe4k2))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxe4k2))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_check)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_entry)
+table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,2,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxe4k2<-function(ventry,vcheck,vinp){
+table<-gtkTable(rows=7,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(ventry[1])
+labelgp$t2<-gtkLabel(ventry[2])
+labelgp$t3<-gtkLabel(ventry[3])
+labelgp$t4<-gtkLabel(ventry[4])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t2<-gtkEntryNew()
+entrygp$t3<-gtkEntryNew()
+entrygp$t4<-gtkEntryNew()
+entrygp$t1$setText(vinp[1])
+entrygp$t2$setText(vinp[2])
+entrygp$t3$setText(vinp[3])
+entrygp$t4$setText(vinp[4])
+sapply(entrygp,diag_entry$packStart)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t1$SetActive(as.logical(vinp[5]))
+checkgp$t2$SetActive(as.logical(vinp[6]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp$t1$getText(),
+          entrygp$t2$getText(),
+          entrygp$t3$getText(),
+          entrygp$t4$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2))
+assign('ans',ans,envir=environment(inpboxe4k2))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxe4k2))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_check)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_entry)
+table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,2,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxe6k1<-function(ventry,vcheck,vinp){
+table<-gtkTable(rows=8,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(ventry[1])
+labelgp$t2<-gtkLabel(ventry[2])
+labelgp$t3<-gtkLabel(ventry[3])
+labelgp$t4<-gtkLabel(ventry[4])
+labelgp$t5<-gtkLabel(ventry[5])
+labelgp$t6<-gtkLabel(ventry[6])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t2<-gtkEntryNew()
+entrygp$t3<-gtkEntryNew()
+entrygp$t4<-gtkEntryNew()
+entrygp$t5<-gtkEntryNew()
+entrygp$t6<-gtkEntryNew()
+entrygp$t1$setText(vinp[1])
+entrygp$t2$setText(vinp[2])
+entrygp$t3$setText(vinp[3])
+entrygp$t4$setText(vinp[4])
+entrygp$t5$setText(vinp[5])
+entrygp$t6$setText(vinp[6])
+sapply(entrygp,diag_entry$packStart)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t1$SetActive(as.logical(vinp[3]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp$t1$getText(),
+          entrygp$t2$getText(),
+          entrygp$t3$getText(),
+          entrygp$t4$getText(),
+          entrygp$t5$getText(),
+          entrygp$t6$getText(),
+          gtkToggleButtonGetActive(checkgp$t1))
+assign('ans',ans,envir=environment(inpboxe6k1))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxe6k1))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_check)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_entry)
+table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,2,top.attach=7,8,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxe6k2<-function(ventry,vcheck,vinp){
+table<-gtkTable(rows=8,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(ventry[1])
+labelgp$t2<-gtkLabel(ventry[2])
+labelgp$t3<-gtkLabel(ventry[3])
+labelgp$t4<-gtkLabel(ventry[4])
+labelgp$t5<-gtkLabel(ventry[5])
+labelgp$t6<-gtkLabel(ventry[6])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entrygp<-list()
+entrygp$t1<-gtkEntryNew()
+entrygp$t2<-gtkEntryNew()
+entrygp$t3<-gtkEntryNew()
+entrygp$t4<-gtkEntryNew()
+entrygp$t5<-gtkEntryNew()
+entrygp$t6<-gtkEntryNew()
+entrygp$t1$setText(vinp[1])
+entrygp$t2$setText(vinp[2])
+entrygp$t3$setText(vinp[3])
+entrygp$t4$setText(vinp[4])
+entrygp$t5$setText(vinp[5])
+entrygp$t6$setText(vinp[6])
+sapply(entrygp,diag_entry$packStart)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t1$SetActive(as.logical(vinp[3]))
+checkgp$t2$SetActive(as.logical(vinp[4]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entrygp$t1$getText(),
+          entrygp$t2$getText(),
+          entrygp$t3$getText(),
+          entrygp$t4$getText(),
+          entrygp$t5$getText(),
+          entrygp$t6$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2))
+assign('ans',ans,envir=environment(inpboxe6k2))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxe6k2))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_check)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_label)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_entry)
+table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,2,top.attach=7,8,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxe7k1<-function(ventry,vcheck,vinp){
+  table<-gtkTable(rows=9,columns=2,homogeneous=FALSE)
+  diag_label<-gtkVBox()
+  labelgp<-list()
+  labelgp$t1<-gtkLabel(ventry[1])
+  labelgp$t2<-gtkLabel(ventry[2])
+  labelgp$t3<-gtkLabel(ventry[3])
+  labelgp$t4<-gtkLabel(ventry[4])
+  labelgp$t5<-gtkLabel(ventry[5])
+  labelgp$t6<-gtkLabel(ventry[6])
+  labelgp$t7<-gtkLabel(ventry[7])
+  sapply(labelgp,diag_label$packStart)
+  diag_entry<-gtkVBox()
+  entrygp<-list()
+  entrygp$t1<-gtkEntryNew()
+  entrygp$t2<-gtkEntryNew()
+  entrygp$t3<-gtkEntryNew()
+  entrygp$t4<-gtkEntryNew()
+  entrygp$t5<-gtkEntryNew()
+  entrygp$t6<-gtkEntryNew()
+  entrygp$t7<-gtkEntryNew()
+  entrygp$t1$setText(vinp[1])
+  entrygp$t2$setText(vinp[2])
+  entrygp$t3$setText(vinp[3])
+  entrygp$t4$setText(vinp[4])
+  entrygp$t5$setText(vinp[5])
+  entrygp$t6$setText(vinp[6])
+  entrygp$t7$setText(vinp[7])
+  sapply(entrygp,diag_entry$packStart)
+  diag_check<-gtkHBox()
+  checkgp<-list()
+  checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+  checkgp$t1$SetActive(as.logical(vinp[3]))
+  sapply(checkgp,diag_check$packStart)
+  submit_hbox<-gtkHBox()
+  button_ok<-gtkButton("OK")
+  button_canc<-gtkButton("Cancel")
+  submit_hbox$packStart(button_ok,expand=TRUE)
+  submit_hbox$packEnd(button_canc,expand=TRUE)
+  gSignalConnect(button_ok,"clicked",f=function(button_ok){
+    ans<-list(entrygp$t1$getText(),
+              entrygp$t2$getText(),
+              entrygp$t3$getText(),
+              entrygp$t4$getText(),
+              entrygp$t5$getText(),
+              entrygp$t6$getText(),
+              entrygp$t7$getText(),
+              gtkToggleButtonGetActive(checkgp$t1))
+    assign('ans',ans,envir=environment(inpboxe7k1))
+    gtkMainQuit()})
+  gSignalConnect(button_canc,"clicked",f=function(button_canc){
+    ans<-NULL
+    assign('ans',ans,envir=environment(inpboxe7k1))
+    gtkMainQuit()})
+  diag_align<-gtkAlignment(xalign=0)
+  diag_align$add(diag_check)
+  diag_align1<-gtkAlignment(xalign=0)
+  diag_align1$add(diag_label)
+  diag_align2<-gtkAlignment(xalign=0)
+  diag_align2$add(diag_entry)
+  table$attach(diag_align1,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_align2,left.attach=1,2,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_align,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(submit_hbox,left.attach=0,2,top.attach=7,8,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$setColSpacing(0,5)
+  window<-gtkWindow(show=FALSE)
+  window['border-width']<-14
+  window$setTitle('Input Choice')
+  window$SetDeletable(FALSE)
+  window$add(table)
+  window$showAll()
+  gtkMain()
+  window$Destroy()
+  return(ans)}
+
+inpboxcke<-function(vlabel,vcombo,vinp){
+table<-gtkTable(rows=5,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+sapply(labelgp,diag_label$packStart)
+diag_inp<-gtkVBox()
+combo<-gtkComboBoxNewText()
+sapply(vcombo,combo$appendText)
+combo$SetActive(as.integer(vinp[1]))
+check<-gtkCheckButtonNew()
+check$SetActive(as.logical(vinp[2]))
+entry<-gtkEntryNew()
+entry$setText(vinp[3])
+diag_inp$packStart(combo)
+diag_inp$packStart(check)
+diag_inp$packStart(entry)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(combo$getActive()+1,
+          gtkToggleButtonGetActive(check),
+          entry$getText())
+assign('ans',ans,envir=environment(inpboxcke))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxcke))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_inp)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxckee <- function(vlabel,vcombo,vinp){
+  table<-gtkTable(rows=6,columns=2,homogeneous=FALSE)
+  diag_label<-gtkVBox()
+  labelgp<-list()
+  labelgp$t1<-gtkLabel(vlabel[1])
+  labelgp$t2<-gtkLabel(vlabel[2])
+  labelgp$t3<-gtkLabel(vlabel[3])
+  labelgp$t4<-gtkLabel(vlabel[4])
+  sapply(labelgp,diag_label$packStart)
+  diag_inp<-gtkVBox()
+  combo<-gtkComboBoxNewText()
+  sapply(vcombo,combo$appendText)
+  combo$SetActive(as.integer(vinp[1]))
+  check<-gtkCheckButtonNew()
+  check$SetActive(as.logical(vinp[2]))
+  entry<-gtkEntryNew()
+  entry$setText(vinp[3])
+  entry1<-gtkEntryNew()
+  entry1$setText(vinp[4])
+  diag_inp$packStart(combo)
+  diag_inp$packStart(check)
+  diag_inp$packStart(entry)
+  diag_inp$packStart(entry1)
+  submit_hbox<-gtkHBox()
+  button_ok<-gtkButton("OK")
+  button_canc<-gtkButton("Cancel")
+  submit_hbox$packStart(button_ok,expand=TRUE)
+  submit_hbox$packEnd(button_canc,expand=TRUE)
+  gSignalConnect(button_ok,"clicked",f=function(button_ok){
+    ans<-list(combo$getActive()+1,
+              gtkToggleButtonGetActive(check),
+              entry$getText(),
+              entry1$getText())
+    assign('ans',ans,envir=environment(inpboxckee))
+    gtkMainQuit()})
+  gSignalConnect(button_canc,"clicked",f=function(button_canc){
+    ans<-NULL
+    assign('ans',ans,envir=environment(inpboxckee))
+    gtkMainQuit()})
+  diag_align<-gtkAlignment(xalign=0)
+  diag_align$add(diag_label)
+  diag_align1<-gtkAlignment(xalign=0)
+  diag_align1$add(diag_inp)
+  table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(submit_hbox,left.attach=0,3,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$setColSpacing(0,5)
+  window<-gtkWindow(show=FALSE)
+  window['border-width']<-14
+  window$setTitle('Input Choice')
+  window$SetDeletable(FALSE)
+  window$add(table)
+  window$showAll()
+  gtkMain()
+  window$Destroy()
+  return(ans)}
+
+inpboxe7k2<-function(vlabel,vinp){
+table<-gtkTable(rows=10,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+labelgp$t6<-gtkLabel(vlabel[6])
+labelgp$t7<-gtkLabel(vlabel[7])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+entry5<-gtkEntryNew()
+entry5$SetText(vinp[5])
+entry6<-gtkEntryNew()
+entry6$SetText(vinp[6])
+entry7<-gtkEntryNew()
+entry7$SetText(vinp[7])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_entry$packStart(entry5)
+diag_entry$packStart(entry6)
+diag_entry$packStart(entry7)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vlabel[8])
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vlabel[9])
+checkgp$t1$SetActive(as.logical(vinp[8]))
+checkgp$t2$SetActive(as.logical(vinp[9]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          entry5$getText(),
+          entry6$getText(),
+          entry7$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2))
+assign('ans',ans,envir=environment(inpboxe7k2))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxe7k2))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+diag_align2<-gtkAlignment(xalign=0)
+diag_align2$add(diag_check)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align2,left.attach=1,2,top.attach=7,8,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=8,9,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxe6k3<-function(vlabel,vcheck,vinp,dis=TRUE){
+table<-gtkTable(rows=8,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+labelgp$t6<-gtkLabel(vlabel[6])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+entry5<-gtkEntryNew()
+entry5$SetText(vinp[5])
+entry6<-gtkEntryNew()
+entry6$SetText(vinp[6])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_entry$packStart(entry5)
+diag_entry$packStart(entry6)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t1$SetActive(as.logical(vinp[7]))
+if(dis)checkgp$t1$SetSensitive(FALSE)
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t2$SetActive(as.logical(vinp[8]))
+checkgp$t3<-gtkCheckButtonNewWithLabel(label=vcheck[3])
+checkgp$t3$SetActive(as.logical(vinp[9]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          entry5$getText(),
+          entry6$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2),
+          gtkToggleButtonGetActive(checkgp$t3))
+assign('ans',ans,envir=environment(inpboxe6k3))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxe6k3))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_check,left.attach=1,2,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=7,8,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeeecc<-function(vlabel,vcombo1,vcombo2,vinp){
+table<-gtkTable(rows=7,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+labelgp$t6<-gtkLabel(vlabel[6])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+combo1<-gtkComboBoxNewText()
+sapply(vcombo1,combo1$appendText)
+combo2<-gtkComboBoxNewText()
+sapply(vcombo2,combo2$appendText)
+combo1$SetActive(as.integer(vinp[5]))
+combo2$SetActive(as.integer(vinp[6]))
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_entry$packStart(combo1)
+diag_entry$packStart(combo2)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          combo1$getActive()+1,
+          combo2$getActive()+1)
+assign('ans',ans,envir=environment(inpboxeeeecc))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeeecc))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions='',yoptions='')
+table$attach(submit_hbox,left.attach=0,3,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxr2k<-function(tradio,vradio,vlabel,inp){
+  table<-gtkTable(rows=4,columns=2,homogeneous=FALSE) # sistemare numero righe
+  diag_label<-gtkLabel(tradio)
+  diag_radio<-gtkVBox()
+  radiogp<-list()
+  radiogp$t1<-gtkRadioButtonNewWithLabel(group=NULL,label=vradio[1])
+  radiogp$t2<-gtkRadioButtonNewWithLabelFromWidget(group=radiogp$t1,label=vradio[2])
+  sapply(radiogp,diag_radio$packStart)
+  check<-gtkCheckButtonNewWithLabel(label=vlabel)
+  check$SetActive(inp)
+  submit_hbox<-gtkHBox()
+  button_ok<-gtkButton("OK")
+  button_canc<-gtkButton("Cancel")
+  submit_hbox$packStart(button_ok,expand=TRUE)
+  submit_hbox$packEnd(button_canc,expand=TRUE)
+  gSignalConnect(button_ok,"clicked",f=function(button_ok){
+    button_ok$setData('ans',list(gtkToggleButtonGetActive(radiogp$t1),
+                                 gtkToggleButtonGetActive(radiogp$t2),
+                                 gtkToggleButtonGetActive(check)))
+    gtkMainQuit()
+  }
+  )
+  gSignalConnect(button_canc,"clicked",f=function(button_canc){
+    button_ok$setData('ans',NULL)
+    gtkMainQuit()
+  }
+  )
+  diag_align<-gtkAlignment(xalign=0)
+  diag_align$add(diag_label)
+  diag_align1<-gtkAlignment(xalign=0)
+  diag_align1$add(diag_radio)
+  diag_align2<-gtkAlignment(xalign=0)
+  diag_align2$add(check)
+  table$attach(diag_align,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_align1,left.attach=1,2,top.attach=0,1,xoptions='fill',yoptions='')
+  table$attach(diag_align2,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions='')
+  table$attach(submit_hbox,left.attach=0,3,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$setColSpacing(0,5)
+  window<-gtkWindow(show=FALSE)
+  window['border-width']<-14
+  window$setTitle('Input Choice')
+  window$SetDeletable(FALSE)
+  window$add(table)
+  window$showAll()
+  gtkMain()
+  ans<-button_ok$GetData('ans')
+  window$Destroy()
+  return(ans)
+}
+
+inpboxc2k<-function(vlabel,vcombo1,vcombo2,inp){
+	table<-gtkTable(rows=4,columns=2,homogeneous=FALSE)
+	diag_label<-gtkVBox()
+	labelgp<-list()
+	labelgp$t1<-gtkLabel(vlabel[1])
+	labelgp$t2<-gtkLabel(vlabel[2])
+	sapply(labelgp,diag_label$packStart)
+	diag_combo<-gtkVBox()
+	combogp<-list()
+	combogp$t1<-gtkComboBoxNewText()
+	sapply(vcombo1,combogp$t1$appendText)
+	combogp$t1$setActive(inp[1])
+	combogp$t2<-gtkComboBoxNewText()
+	sapply(vcombo2,combogp$t2$appendText)
+	combogp$t2$setActive(inp[2])
+	sapply(combogp,diag_combo$packStart)
+	check<-gtkCheckButtonNewWithLabel(label=vlabel[3])
+	check$SetActive(inp[3])
+	submit_hbox<-gtkHBox()
+	button_ok<-gtkButton("OK")
+	button_canc<-gtkButton("Cancel")
+	submit_hbox$packStart(button_ok,expand=TRUE)
+	submit_hbox$packEnd(button_canc,expand=TRUE)
+	gSignalConnect(button_ok,"clicked",f=function(button_ok){
+		button_ok$setData('ans',list(as.integer(combogp$t1$getActive())+1,
+								as.integer(combogp$t2$getActive())+1,
+								gtkToggleButtonGetActive(check)))
+		gtkMainQuit()
+		}
+	)
+	gSignalConnect(button_canc,"clicked",f=function(button_canc){
+		button_ok$setData('ans',NULL)
+		gtkMainQuit()
+		}
+	)
+	diag_align<-gtkAlignment(xalign=0)
+	diag_align$add(diag_label)
+	diag_align1<-gtkAlignment(xalign=0)
+	diag_align1$add(diag_combo)
+	diag_align2<-gtkAlignment(xalign=0)
+	diag_align2$add(check)
+	table$attach(diag_align,left.attach=0,1,top.attach=0,1,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+	table$attach(diag_align1,left.attach=1,2,top.attach=0,1,xoptions='fill',yoptions='')
+	table$attach(diag_align2,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions='')
+	table$attach(submit_hbox,left.attach=0,3,top.attach=2,3,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+	table$setColSpacing(0,5)
+	window<-gtkWindow(show=FALSE)
+	window['border-width']<-14
+	window$setTitle('Input Choice')
+	window$SetDeletable(FALSE)
+	window$add(table)
+	window$showAll()
+	gtkMain()
+	ans<-button_ok$GetData('ans')
+	window$Destroy()
+	return(ans)
+}
+
+inpboxc3 <- function (vlabel, vcombo1, vcombo2, vcombo3, inp = c(1, 1, 1)) 
+{
+  table <- gtkTable(rows = 4, columns = 2, homogeneous = FALSE)
+  diag_label <- gtkVBox()
+  labelgp <- list()
+  labelgp$t1 <- gtkLabel(vlabel[1])
+  labelgp$t2 <- gtkLabel(vlabel[2])
+  labelgp$t3 <- gtkLabel(vlabel[3])
+  sapply(labelgp, diag_label$packStart)
+  diag_combo <- gtkVBox()
+  combogp <- list()
+  combogp$t1 <- gtkComboBoxNewText()
+  sapply(vcombo1, combogp$t1$appendText)
+  combogp$t1$setActive(inp[1])
+  combogp$t2 <- gtkComboBoxNewText()
+  sapply(vcombo2, combogp$t2$appendText)
+  combogp$t2$setActive(inp[2])
+  combogp$t3 <- gtkComboBoxNewText()
+  sapply(vcombo3, combogp$t3$appendText)
+  combogp$t3$setActive(inp[3])
+  sapply(combogp, diag_combo$packStart)
+  submit_hbox <- gtkHBox()
+  button_ok <- gtkButton("OK")
+  button_canc <- gtkButton("Cancel")
+  submit_hbox$packStart(button_ok, expand = TRUE)
+  submit_hbox$packEnd(button_canc, expand = TRUE)
+  gSignalConnect(button_ok, "clicked", f = function(button_ok) {
+    button_ok$setData("ans", list(as.integer(combogp$t1$getActive()) + 
+                                    1, as.integer(combogp$t2$getActive()) + 1,
+                                  as.integer(combogp$t3$getActive()) + 1))
+    gtkMainQuit()
+  })
+  gSignalConnect(button_canc, "clicked", f = function(button_canc) {
+    button_ok$setData("ans", NULL)
+    gtkMainQuit()
+  })
+  diag_align <- gtkAlignment(xalign = 0)
+  diag_align$add(diag_label)
+  diag_align1 <- gtkAlignment(xalign = 0)
+  diag_align1$add(diag_combo)
+  table$attach(diag_align, left.attach = 0, 1, top.attach = 0, 
+               1, xoptions = c("expand", "fill"), yoptions = c("expand", 
+                                                               "fill"))
+  table$attach(diag_align1, left.attach = 1, 2, top.attach = 0, 
+               1, xoptions = c("expand", "fill"), yoptions = c("expand", 
+                                                               "fill"))
+  table$attach(submit_hbox, left.attach = 0, 3, top.attach = 2, 
+               3, xoptions = c("expand", "fill"), yoptions = c("expand", 
+                                                               "fill"))
+  table$setColSpacing(0, 5)
+  window <- gtkWindow(show = FALSE)
+  window["border-width"] <- 14
+  window$setTitle("Input Choice")
+  window$SetDeletable(FALSE)
+  window$add(table)
+  window$showAll()
+  gtkMain()
+  ans <- button_ok$GetData("ans")
+  window$Destroy()
+  return(ans)
+}
+
+inpboxeeekkk<-function(vlabel,vcheck,vinp){
+table<-gtkTable(rows=6,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_check<-gtkHBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t1$SetActive(as.logical(vinp[4]))
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t2$SetActive(as.logical(vinp[5]))
+checkgp$t3<-gtkCheckButtonNewWithLabel(label=vcheck[3])
+checkgp$t3$SetActive(as.logical(vinp[6]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2),
+          gtkToggleButtonGetActive(checkgp$t3))
+assign('ans',ans,envir=environment(inpboxeeekkk))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeekkk))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_check,left.attach=1,2,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeeecck<-function(vlabel,vcombo1,vcombo2,vinp){
+table<-gtkTable(rows=8,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+labelgp$t6<-gtkLabel(vlabel[6])
+labelgp$t7<-gtkLabel(vlabel[7])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+combo1<-gtkComboBoxNewText()
+sapply(vcombo1,combo1$appendText)
+combo2<-gtkComboBoxNewText()
+sapply(vcombo2,combo2$appendText)
+combo1$SetActive(as.integer(vinp[5]))
+combo2$SetActive(as.integer(vinp[6]))
+check1<-gtkCheckButtonNewWithLabel(label='')
+check1$SetActive(as.logical(vinp[7]))
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_entry$packStart(combo1)
+diag_entry$packStart(combo2)
+diag_entry$packStart(check1)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          combo1$getActive()+1,
+          combo2$getActive()+1,
+		  gtkToggleButtonGetActive(check1))
+assign('ans',ans,envir=environment(inpboxeeeecck))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeeecck))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeeeck<-function(vlabel,vcombo1,vinp){
+table<-gtkTable(rows=7,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+labelgp$t6<-gtkLabel(vlabel[6])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+combo1<-gtkComboBoxNewText()
+sapply(vcombo1,combo1$appendText)
+combo1$SetActive(as.integer(vinp[5]))
+check1<-gtkCheckButtonNewWithLabel(label='')
+check1$SetActive(as.logical(vinp[6]))
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_entry$packStart(combo1)
+diag_entry$packStart(check1)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          combo1$getActive()+1,
+		  gtkToggleButtonGetActive(check1))
+assign('ans',ans,envir=environment(inpboxeeeeck))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeeeck))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=5,6,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+inpboxeeeeekk<-function(vlabel,vcheck,vinp){
+table<-gtkTable(rows=9,columns=2,homogeneous=FALSE)
+diag_label<-gtkVBox()
+labelgp<-list()
+labelgp$t1<-gtkLabel(vlabel[1])
+labelgp$t2<-gtkLabel(vlabel[2])
+labelgp$t3<-gtkLabel(vlabel[3])
+labelgp$t4<-gtkLabel(vlabel[4])
+labelgp$t5<-gtkLabel(vlabel[5])
+sapply(labelgp,diag_label$packStart)
+diag_entry<-gtkVBox()
+entry1<-gtkEntryNew()
+entry1$SetText(vinp[1])
+entry2<-gtkEntryNew()
+entry2$SetText(vinp[2])
+entry3<-gtkEntryNew()
+entry3$SetText(vinp[3])
+entry4<-gtkEntryNew()
+entry4$SetText(vinp[4])
+entry5<-gtkEntryNew()
+entry5$SetText(vinp[5])
+diag_entry$packStart(entry1)
+diag_entry$packStart(entry2)
+diag_entry$packStart(entry3)
+diag_entry$packStart(entry4)
+diag_entry$packStart(entry5)
+diag_check<-gtkVBox()
+checkgp<-list()
+checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+checkgp$t1$SetActive(as.logical(vinp[6]))
+checkgp$t2<-gtkCheckButtonNewWithLabel(label=vcheck[2])
+checkgp$t2$SetActive(as.logical(vinp[7]))
+sapply(checkgp,diag_check$packStart)
+submit_hbox<-gtkHBox()
+button_ok<-gtkButton("OK")
+button_canc<-gtkButton("Cancel")
+submit_hbox$packStart(button_ok,expand=TRUE)
+submit_hbox$packEnd(button_canc,expand=TRUE)
+gSignalConnect(button_ok,"clicked",f=function(button_ok){
+ans<-list(entry1$getText(),
+          entry2$getText(),
+          entry3$getText(),
+          entry4$getText(),
+          entry5$getText(),
+          gtkToggleButtonGetActive(checkgp$t1),
+          gtkToggleButtonGetActive(checkgp$t2))
+assign('ans',ans,envir=environment(inpboxeeeeekk))
+gtkMainQuit()})
+gSignalConnect(button_canc,"clicked",f=function(button_canc){
+ans<-NULL
+assign('ans',ans,envir=environment(inpboxeeeeekk))
+gtkMainQuit()})
+diag_align<-gtkAlignment(xalign=0)
+diag_align$add(diag_label)
+diag_align1<-gtkAlignment(xalign=0)
+diag_align1$add(diag_entry)
+table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(diag_check,left.attach=1,2,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,3,top.attach=9,10,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$setColSpacing(0,5)
+window<-gtkWindow(show=FALSE)
+window['border-width']<-14
+window$setTitle('Input Choice')
+window$SetDeletable(FALSE)
+window$add(table)
+window$showAll()
+gtkMain()
+window$Destroy()
+return(ans)}
+
+
+inpboxeeeeek<-function(vlabel,vcheck,vinp){
+  table<-gtkTable(rows=9,columns=2,homogeneous=FALSE)
+  diag_label<-gtkVBox()
+  labelgp<-list()
+  labelgp$t1<-gtkLabel(vlabel[1])
+  labelgp$t2<-gtkLabel(vlabel[2])
+  labelgp$t3<-gtkLabel(vlabel[3])
+  labelgp$t4<-gtkLabel(vlabel[4])
+  labelgp$t5<-gtkLabel(vlabel[5])
+  sapply(labelgp,diag_label$packStart)
+  diag_entry<-gtkVBox()
+  entry1<-gtkEntryNew()
+  entry1$SetText(vinp[1])
+  entry2<-gtkEntryNew()
+  entry2$SetText(vinp[2])
+  entry3<-gtkEntryNew()
+  entry3$SetText(vinp[3])
+  entry4<-gtkEntryNew()
+  entry4$SetText(vinp[4])
+  entry5<-gtkEntryNew()
+  entry5$SetText(vinp[5])
+  diag_entry$packStart(entry1)
+  diag_entry$packStart(entry2)
+  diag_entry$packStart(entry3)
+  diag_entry$packStart(entry4)
+  diag_entry$packStart(entry5)
+  diag_check<-gtkVBox()
+  checkgp<-list()
+  checkgp$t1<-gtkCheckButtonNewWithLabel(label=vcheck[1])
+  checkgp$t1$SetActive(as.logical(vinp[6]))
+  sapply(checkgp,diag_check$packStart)
+  submit_hbox<-gtkHBox()
+  button_ok<-gtkButton("OK")
+  button_canc<-gtkButton("Cancel")
+  submit_hbox$packStart(button_ok,expand=TRUE)
+  submit_hbox$packEnd(button_canc,expand=TRUE)
+  gSignalConnect(button_ok,"clicked",f=function(button_ok){
+    ans<-list(entry1$getText(),
+              entry2$getText(),
+              entry3$getText(),
+              entry4$getText(),
+              entry5$getText(),
+              gtkToggleButtonGetActive(checkgp$t1))
+    assign('ans',ans,envir=environment(inpboxeeeeekk))
+    gtkMainQuit()})
+  gSignalConnect(button_canc,"clicked",f=function(button_canc){
+    ans<-NULL
+    assign('ans',ans,envir=environment(inpboxeeeeekk))
+    gtkMainQuit()})
+  diag_align<-gtkAlignment(xalign=0)
+  diag_align$add(diag_label)
+  diag_align1<-gtkAlignment(xalign=0)
+  diag_align1$add(diag_entry)
+  table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_check,left.attach=1,2,top.attach=6,7,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(submit_hbox,left.attach=0,3,top.attach=9,10,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$setColSpacing(0,5)
+  window<-gtkWindow(show=FALSE)
+  window['border-width']<-14
+  window$setTitle('Input Choice')
+  window$SetDeletable(FALSE)
+  window$add(table)
+  window$showAll()
+  gtkMain()
+  window$Destroy()
+  return(ans)}
+
+inpboxc2<-function (vlabel, vcombo1, vcombo2, inp = c(1, 1)) 
+{
+  table <- gtkTable(rows = 3, columns = 2, homogeneous = FALSE)
+  diag_label <- gtkVBox()
+  labelgp <- list()
+  labelgp$t1 <- gtkLabel(vlabel[1])
+  labelgp$t2 <- gtkLabel(vlabel[2])
+  sapply(labelgp, diag_label$packStart)
+  diag_combo <- gtkVBox()
+  combogp <- list()
+  combogp$t1 <- gtkComboBoxNewText()
+  sapply(vcombo1, combogp$t1$appendText)
+  combogp$t1$setActive(inp[1])
+  combogp$t2 <- gtkComboBoxNewText()
+  sapply(vcombo2, combogp$t2$appendText)
+  combogp$t2$setActive(inp[2])
+  sapply(combogp, diag_combo$packStart)
+  submit_hbox <- gtkHBox()
+  button_ok <- gtkButton("OK")
+  button_canc <- gtkButton("Cancel")
+  submit_hbox$packStart(button_ok, expand = TRUE)
+  submit_hbox$packEnd(button_canc, expand = TRUE)
+  gSignalConnect(button_ok, "clicked", f = function(button_ok) {
+    button_ok$setData("ans", list(as.integer(combogp$t1$getActive()) + 
+                                    1, as.integer(combogp$t2$getActive()) + 1))
+    gtkMainQuit()
+  })
+  gSignalConnect(button_canc, "clicked", f = function(button_canc) {
+    button_ok$setData("ans", NULL)
+    gtkMainQuit()
+  })
+  diag_align <- gtkAlignment(xalign = 0)
+  diag_align$add(diag_label)
+  diag_align1 <- gtkAlignment(xalign = 0)
+  diag_align1$add(diag_combo)
+  table$attach(diag_align, left.attach = 0, 1, top.attach = 0, 
+               1, xoptions = c("expand", "fill"), yoptions = c("expand", 
+                                                               "fill"))
+  table$attach(diag_align1, left.attach = 1, 2, top.attach = 0, 
+               1, xoptions = c("expand", "fill"), yoptions = c("expand", 
+                                                               "fill"))
+  table$attach(submit_hbox, left.attach = 0, 3, top.attach = 2, 
+               3, xoptions = c("expand", "fill"), yoptions = c("expand", 
+                                                               "fill"))
+  table$setColSpacing(0, 5)
+  window <- gtkWindow(show = FALSE)
+  window["border-width"] <- 14
+  window$setTitle("Input Choice")
+  window$SetDeletable(FALSE)
+  window$add(table)
+  window$showAll()
+  gtkMain()
+  ans <- button_ok$GetData("ans")
+  window$Destroy()
+  return(ans)
+}
+
+inpboxe<-function (vlabel, inp, title) {
+  require(RGtk2Extras)
+  table <- gtkTable(rows = 3, columns = 2, homogeneous = FALSE)
+  diag_label <- gtkVBox()
+  labelgp <- list()
+  labelgp$t1 <- gtkLabel(vlabel[1])
+  sapply(labelgp, diag_label$packStart)
+  diag_entry <- gtkVBox()
+  entrygp <- list()
+  entrygp$t1 <- gtkEntryNew()
+  entrygp$t1$setText(inp[1])
+  sapply(entrygp, diag_entry$packStart)
+  submit_hbox <- gtkHBox()
+  button_ok <- gtkButton("OK")
+  button_canc <- gtkButton("Cancel")
+  submit_hbox$packStart(button_ok, expand = TRUE)
+  submit_hbox$packEnd(button_canc, expand = TRUE)
+  gSignalConnect(button_ok, "clicked", f = function(button_ok) {
+    button_ok$setData("ans", list(entrygp$t1$getText()))
+    gtkMainQuit()
+  })
+  gSignalConnect(button_canc, "clicked", f = function(button_canc) {
+    button_ok$setData("ans", NULL)
+    gtkMainQuit()
+  })
+  diag_align <- gtkAlignment(xalign = 0)
+  diag_align$add(diag_entry)
+  diag_align1 <- gtkAlignment(xalign = 0)
+  diag_align1$add(diag_label)
+  table$attach(diag_align1, left.attach = 0, 1, top.attach = 1,
+               2, xoptions = c("expand", "fill"), yoptions = c("expand",
+                                                               "fill"))
+  table$attach(diag_align, left.attach = 1, 2, top.attach = 1,
+               2, xoptions = c("expand", "fill"), yoptions = c("expand",
+                                                               "fill"))
+  table$attach(submit_hbox, left.attach = 0, 3, top.attach = 2,
+               3, xoptions = c("expand", "fill"), yoptions = c("expand",
+                                                               "fill"))
+  table$setColSpacing(0, 5)
+  window <- gtkWindow(show = FALSE)
+  window["border-width"] <- 14
+  window$setTitle(title)
+  window$SetDeletable(FALSE)
+  window$add(table)
+  window$showAll()
+  gtkMain()
+  ans <- button_ok$GetData("ans")
+  window$Destroy()
+  return(ans)
+}
+
+inpboxe6ck2<-function(vlabel,vcombo,vinp){
+  table<-gtkTable(rows=10,columns=2,homogeneous=FALSE)
+  diag_label<-gtkVBox()
+  labelgp<-list()
+  labelgp$t1<-gtkLabel(vlabel[1])
+  labelgp$t2<-gtkLabel(vlabel[2])
+  labelgp$t3<-gtkLabel(vlabel[3])
+  labelgp$t4<-gtkLabel(vlabel[4])
+  labelgp$t5<-gtkLabel(vlabel[5])
+  labelgp$t6<-gtkLabel(vlabel[6])
+  labelgp$t7<-gtkLabel(vlabel[7])
+  sapply(labelgp,diag_label$packStart)
+  diag_entry<-gtkVBox()
+  entry1<-gtkEntryNew()
+  entry1$SetText(vinp[1])
+  entry2<-gtkEntryNew()
+  entry2$SetText(vinp[2])
+  entry3<-gtkEntryNew()
+  entry3$SetText(vinp[3])
+  entry4<-gtkEntryNew()
+  entry4$SetText(vinp[4])
+  entry5<-gtkEntryNew()
+  entry5$SetText(vinp[5])
+  combo<-gtkComboBoxNewText()
+  sapply(vcombo,combo$appendText)
+  combo$setActive(0)
+  entry7<-gtkEntryNew()
+  entry7$SetText(vinp[6])
+  diag_entry$packStart(entry1)
+  diag_entry$packStart(entry2)
+  diag_entry$packStart(entry3)
+  diag_entry$packStart(entry4)
+  diag_entry$packStart(entry5)
+  diag_entry$packStart(combo)
+  diag_entry$packStart(entry7)
+  diag_check<-gtkHBox()
+  checkgp<-list()
+  checkgp$t1<-gtkCheckButtonNewWithLabel(label=vlabel[8])
+  checkgp$t2<-gtkCheckButtonNewWithLabel(label=vlabel[9])
+  checkgp$t1$SetActive(as.logical(vinp[8]))
+  checkgp$t2$SetActive(as.logical(vinp[9]))
+  sapply(checkgp,diag_check$packStart)
+  submit_hbox<-gtkHBox()
+  button_ok<-gtkButton("OK")
+  button_canc<-gtkButton("Cancel")
+  submit_hbox$packStart(button_ok,expand=TRUE)
+  submit_hbox$packEnd(button_canc,expand=TRUE)
+  gSignalConnect(button_ok,"clicked",f=function(button_ok){
+    ans<-list(entry1$getText(),
+              entry2$getText(),
+              entry3$getText(),
+              entry4$getText(),
+              entry5$getText(),
+              combo$getActive()+1,
+              entry7$getText(),
+              gtkToggleButtonGetActive(checkgp$t1),
+              gtkToggleButtonGetActive(checkgp$t2))
+    assign('ans',ans,envir=environment(inpboxe7k2))
+    gtkMainQuit()})
+  gSignalConnect(button_canc,"clicked",f=function(button_canc){
+    ans<-NULL
+    assign('ans',ans,envir=environment(inpboxe7k2))
+    gtkMainQuit()})
+  diag_align<-gtkAlignment(xalign=0)
+  diag_align$add(diag_label)
+  diag_align1<-gtkAlignment(xalign=0)
+  diag_align1$add(diag_entry)
+  diag_align2<-gtkAlignment(xalign=0)
+  diag_align2$add(diag_check)
+  table$attach(diag_align,left.attach=0,1,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_align1,left.attach=1,2,top.attach=1,2,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(diag_align2,left.attach=1,2,top.attach=7,8,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$attach(submit_hbox,left.attach=0,3,top.attach=8,9,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+  table$setColSpacing(0,5)
+  window<-gtkWindow(show=FALSE)
+  window['border-width']<-14
+  window$setTitle('Input Choice')
+  window$SetDeletable(FALSE)
+  window$add(table)
+  window$showAll()
+  gtkMain()
+  window$Destroy()
+  return(ans)}

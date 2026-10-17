@@ -1,0 +1,676 @@
+# Purpose   : workspace management. Some common operationa are easily performed:
+#             1. see object, size, type in the memory
+#             2. delete any object(except reserved)
+#             3. copy objects
+#             4. merge objects 
+#             5. transpose matrix
+#             6. create new matrix
+#             7. modify matrix/dataframe
+#             8. get further details about the object
+# Author    : Gruppo di Chemiometria 
+#            (Divisione di Chimica Analitica della Societ? Chimica Italiana)
+# Programmer: GMP
+# Version   : 1.9
+# Licence   : GPL2.1
+#
+tellme<-function(mname){
+M<-get(mname,envir=.GlobalEnv)
+if(!is.null(M)|is.data.frame(M)|is.matrix(M)|is.vector(M)){
+if(is.vector(M))M<-matrix(M,length(M),1)
+nna<-sum(is.na(M))
+ntype<-attributes(M)$class
+if(!is.null(ntype)){
+ nro<-nrow(M)
+ ncl<-ncol(M)
+ nacl<-attributes(M)$names
+ naro<-attributes(M)$row.names
+}else{
+if(is.matrix(M)){
+ ntype<-'matrix'
+ nro<-dim(M)[1]
+ ncl<-dim(M)[2]
+ nacl<-colnames(M)
+ naro<-rownames(M)}}
+sink("tellme.txt")
+print(paste('**************************************************************************'),quote=FALSE)
+print(paste('Name                  : ',mname),quote=FALSE)
+print(paste('Type                  : ',ntype),quote=FALSE)
+print(paste('Row                   : ',nro),quote=FALSE)
+print(paste('Column                : ',ncl),quote=FALSE)
+print(paste('NA                    : ',nna),quote=FALSE)
+nap<-nna/(nro*ncl)*100
+print(paste('%NA                   : ',format(nap,digits=1)),quote=FALSE)
+print(paste('Column Names          : '),quote=FALSE)
+print(nacl,quote=FALSE)
+print(paste('Row Names             : '),quote=FALSE)
+print(naro,quote=FALSE)
+print(paste('**************************************************************************'),quote=FALSE)
+sink()
+setwd(working.dir)
+file.edit('tellme.txt')
+rm(M,ntype,nro,ncl,naro,nacl,nna,nap)
+}else{
+tk_messageBox(type=c("ok"),message='Only whole Variable. Not a part !',caption="Input Error")}}
+
+copyme<-function(mname){
+M<-get(mname,envir=.GlobalEnv)
+new.name<-gnfib('New Name')
+oyn<-'yes'
+if(exists(new.name,envir=.GlobalEnv)){
+oyn<-tk_messageBox(type="yesno",message='Variable Exists.Overwrite ?')}
+if(oyn=='yes'){
+assign(new.name,M,envir=.GlobalEnv)
+print(paste(mname,'copied in',new.name))  
+assign('previous.name',new.name,envir=.GlobalEnv)}
+return()}
+
+transposeme<-function(mname){
+M<-get(mname,envir=.GlobalEnv)
+new.name<-gnfib('New Name')
+oyn<-'yes'
+if(exists(new.name,envir=.GlobalEnv)){
+	oyn<-tk_messageBox(type="yesno",message='Variable Exists.Overwrite ?')
+}
+if(oyn=='yes'){
+	if((typeof(M)=='list')|(typeof(M)=='double')){
+			Mt<-t(as.matrix(M))
+			assign(new.name,as.matrix(Mt),envir=.GlobalEnv)
+			print(paste(mname,'transposed')) 
+			assign('previous.name',new.name,envir=.GlobalEnv)
+			if(typeof(M)=='list'){
+				assign('nar',row.names(M),envir=.GlobalEnv)
+				assign('nac',names(M),envir=.GlobalEnv)
+				print('You transposed a table: row and column names are saved in : nar and nac variables for future use')
+			}
+	}else{
+		tk_messageBox(type=c("ok"),message='Only Matrix for this Function!',caption="Input Error")
+	}
+}
+return()}
+
+modifyme<-function(mname){
+M<-get(mname,envir=.GlobalEnv)
+M<-dfedit(M,dataset.name=deparse(substitute(M)),size=c(600,300),col.width=64,
+editable=TRUE,autosize=is.null(dim(M))||ncol(M)<25,update=TRUE,modal=TRUE)
+assign(mname,as.data.frame(M),envir=.GlobalEnv)
+print(paste(mname,'modified') ) 
+#print(M)
+assign('previous.name',mname,envir=.GlobalEnv)
+return()}
+
+newme<-function(){
+nl<-inpboxeee('*Matrix Name','*Number of Rows','*Number of Columns',c('','1','1'))
+new.name<-nl[[1]]
+nr<-as.integer(nl[[2]])
+nc<-as.integer(nl[[3]])
+oyn<-'yes'
+if(exists(new.name,envir=.GlobalEnv)){
+oyn<-tk_messageBox(type="yesno",message='Variable Exists.Overwrite ?')}
+if(oyn=='yes'){
+M<-matrix(rep(0,nr*nc),nr,nc)
+M<-dfedit(as.data.frame(M))
+assign(new.name,as.data.frame(M),envir=.GlobalEnv)
+print(paste(new.name,'created') ) 
+assign('previous.name',new.name,envir=.GlobalEnv)}
+return()}
+
+mergeme<-function(mname){
+	M<-eval(parse(text=mname),envir=.GlobalEnv)
+    lM=0
+    if(!is.vector(M)){
+        rM<-dim(M)[1]
+        cM<-dim(M)[2]
+    }else{
+        lM=length(M)
+    }
+	#new.name<-gnfib('Merge With:')
+	new.name<-gvfib(lb='Merge With:')
+	if(!is.null(new.name)){
+		N<-eval(parse(text=new.name$input),envir=.GlobalEnv)
+        lN=0
+        if(!is.vector(N)){
+            rN<-dim(N)[1]
+            cN<-dim(N)[2]
+        }else{
+            lN=length(N)
+        }
+        # both are matrices/datasets
+        if((lM==0)&(lN==0)){
+            if((rM==rN)&(cM!=cN))M<-cbind(M,N)
+            if((rM!=rN)&(cM==cN))M<-rbind(M,N)
+            if((rM==rN)&(cM==cN)){oyn<-'yes'
+            oyn<-tk_messageBox(type="yesno",message='Merge vertically ?')
+            if(oyn=='yes'){M<-rbind(M,N)}
+            if(oyn=='no'){M<-cbind(M,N)}}
+            if((rM!=rN)&(cM!=cN)){
+                ans<-messagebox('Incompatible Matrices!')
+                return()
+            }
+        }
+        # M is a vector N a matrix
+        if((lM!=0)&(lN==0)){
+            if((lM==rN)&(lM!=cN))M<-cbind(M,N)
+            if((lM!=rN)&(lM==cN))M<-rbind(M,N)
+            if((lM!=rN)&(lM!=cN)){
+                ans<-messagebox('Incompatible Dimensions!')
+                return()
+            }
+        }
+        # N is a vector M a matrix
+        if((lN!=0)&(lM==0)){
+            N<-as.data.frame(N)
+            colnames(N)<-colnames(get(new.name$name))[as.numeric(sub("]","",sub(".*\\[,", "", new.name$surname)))]
+            if((lN==rM)&(lN!=cM))M<-cbind(M,N)
+            if((lN!=rM)&(lN==cM))M<-rbind(M,N)
+            if((lN!=rM)&(lN!=cM)){
+                ans<-messagebox('Incompatible Dimensions!')
+                return()
+            }
+        }
+        # both N and M are vectors
+        if((lN!=0)&(lM!=0)){
+            if(lN==lM){
+                oyn<-messageyesno('Merge vertically ?')
+                oyn<-as.logical(unlist(oyn))
+                if(oyn)M<-cbind(M,N)
+                if(!oyn)M<-rbind(M,N)
+            }else{
+                ans<-messagebox('Incompatible Dimensions!')
+                return()
+            }
+        }
+	    assign(mname,M,envir=.GlobalEnv)
+		print(paste(new.name$input,'merged in',mname)) 
+	}
+	return()
+}
+
+require(RGtk2)
+require(RGtk2Extras)
+items<-ls()
+# system variables
+items<-items[items!='ans']
+items<-items[items!='base.dir']
+items<-items[items!='lib.dir']
+items<-items[items!='script.dir']
+items<-items[items!='ch.script.dir']
+items<-items[items!='working.dir']
+items<-items[items!='dovc']
+
+
+items<-items[items!='extract_parts']
+items<-items[items!='extraction']
+
+items<-items[items!='gvfib']
+items<-items[items!='gvfib_1']
+items<-items[items!='gnfib']
+items<-items[items!='givedim']
+items<-items[items!='graph']
+items<-items[items!='loadbar']
+items<-items[items!='do.lspec']
+items<-items[items!='messageyesno']
+items<-items[items!='inpboxeee']
+items<-items[items!='inpboxee']
+items<-items[items!='inpboxe']
+items<-items[items!='inpboxeccc']
+items<-items[items!='inpboxekk']
+items<-items[items!='inpboxec']
+items<-items[items!='inpboxc']
+items<-items[items!='inpboxc2']
+items<-items[items!='inpboxc3']
+items<-items[items!='inpboxceeck']
+items<-items[items!='inpboxck']
+items<-items[items!='inpboxeekk']
+items<-items[items!='inpboxeeekk']
+items<-items[items!='inpboxek']
+items<-items[items!='inpboxek2']
+items<-items[items!='inpboxeek']
+items<-items[items!='inpboxcrrrr']
+items<-items[items!='inpboxecece']
+items<-items[items!='inpboxeeece']
+items<-items[items!='inpboxeeec']
+items<-items[items!='inpboxeec']
+items<-items[items!='inpboxer2']
+items<-items[items!='inpboxeeecekk']
+items<-items[items!='inpboxeeeekkk']
+items<-items[items!='inpboxeeeeee']
+items<-items[items!='inpboxeeeeeekk']
+items<-items[items!='inpboxeeeeekkk']
+items<-items[items!='inpboxeeeeeekkk']
+items<-items[items!='inpboxeeeekk']
+items<-items[items!='inpboxeeeee']
+items<-items[items!='inpboxeeee']
+items<-items[items!='inpboxeeek']
+items<-items[items!='inpboxeeeek']
+items<-items[items!='inpboxeeekk']
+items<-items[items!='inpboxeerr']
+items<-items[items!='inpboxeeeerr']
+items<-items[items!='inpboxrr']
+items<-items[items!='inpboxcc']
+items<-items[items!='inpboxcrr']
+items<-items[items!='inpboxcrrr']
+items<-items[items!='inpboxe6k2']
+items<-items[items!='inpboxe4k1']
+items<-items[items!='inpboxe4k2']
+items<-items[items!='inpboxe1k1']
+items<-items[items!='inpboxe3k2']
+items<-items[items!='inpbox7k7k']
+items<-items[items!='inpbox6k6k6e']
+items<-items[items!='inpboxk6']
+items<-items[items!='inpboxe6k1']
+items<-items[items!='inpboxe6k3']
+items<-items[items!='inpboxe7k1']
+items<-items[items!='inpboxeeeeeerr']
+items<-items[items!='inpboxec']
+items<-items[items!='inpboxleeeleeeleerr']
+items<-items[items!='inpboxlist']
+items<-items[items!='inpboxcke']
+items<-items[items!='inpboxckee']
+items<-items[items!='inpboxckeeck']
+items<-items[items!='inpboxe7k2']
+items<-items[items!='inpboxr2k']
+items<-items[items!='inpboxc2k']
+items<-items[items!='inpboxeeeecc']
+items<-items[items!='inpboxeeeeeeekk']
+items<-items[items!='inpboxeeeeeeerr']
+items<-items[items!='inpboxeeekkk']
+items<-items[items!='inpboxeeeecck']
+items<-items[items!='inpboxeeeeck']
+items<-items[items!='inpboxeeeeekk']
+items<-items[items!='inpboxeeeeek']
+items<-items[items!='inpboxe6ck2']
+items<-items[items!='makevar']
+items<-items[items!='bin.set']
+items<-items[items!='biplot.set']
+items<-items[items!='c01.set']
+items<-items[items!='c11.set']
+items<-items[items!='cc.set']
+items<-items[items!='cas.set']
+items<-items[items!='cd1.set']
+items<-items[items!='cd2.set']
+items<-items[items!='cl1.set']
+items<-items[items!='clog.set']
+items<-items[items!='cm100.set']
+items<-items[items!='cma.set']
+items<-items[items!='crc.set']
+items<-items[items!='cs.set']
+items<-items[items!='cq.set']
+items<-items[items!='cs100.set']
+items<-items[items!='doe.set']
+items<-items[items!='doe.pred.set']
+items<-items[items!='gc.set']
+items<-items[items!='KNN.set']
+items<-items[items!='KNN.pred.set']
+items<-items[items!='LDA.set']
+items<-items[items!='LDA.pred.set']
+items<-items[items!='LDA.rnd.set']
+items<-items[items!='LDA.pertest.set']
+items<-items[items!='pareto.set']
+items<-items[items!='pca.set']
+items<-items[items!='pca.prj.set']
+items<-items[items!='pls.set']
+items<-items[items!='pls_rnd.set']
+items<-items[items!='pls.ex_cal']
+items<-items[items!='pls.res']
+items<-items[items!='prof.set']
+items<-items[items!='QDA.set']
+items<-items[items!='QDA.rnd.set']
+items<-items[items!='QDA.pertest.set']
+items<-items[items!='QDA.pred.set']
+items<-items[items!='ras.set']
+items<-items[items!='rdf.set']
+items<-items[items!='rdf2.set']
+items<-items[items!='rma.set']
+items<-items[items!='rs100.set']
+items<-items[items!='repl_r.set']
+items<-items[items!='score.set']
+items<-items[items!='score3D.set']
+items<-items[items!='sg.set']
+items<-items[items!='t2vsq.set']
+items<-items[items!='XYplot.set']
+items<-items[items!='Yplot.set']
+items<-items[items!='uni.set']
+items<-items[items!='variable']
+items<-items[items!='previous.name']
+items<-items[items!='previous.name.x']
+items<-items[items!='previous.name.y']
+# menu variables
+items<-items[items!='pcaVarexpl']
+items<-items[items!='mitems']
+items<-items[items!='nitems']
+items<-items[items!='button_close']
+items<-items[items!='button_del']
+items<-items[items!='button_tell']
+items<-items[items!='button_copy']
+items<-items[items!='button_tran']
+items<-items[items!='button_new']
+items<-items[items!='button_merge']
+items<-items[items!='model']
+items<-items[items!='scrolled_window']
+items<-items[items!='selection']
+items<-items[items!='submit_hbox']
+items<-items[items!='table']
+items<-items[items!='view']
+items<-items[items!='window']
+items<-items[items!='tellme']
+items<-items[items!='modifyme']
+items<-items[items!='transposeme']
+items<-items[items!='copyme']
+items<-items[items!='newme']
+items<-items[items!='mergeme']
+items<-items[items!='chemio_window']
+items<-items[items!='chemiobar']
+items<-items[items!='chemio_vbox']
+items<-items[items!='BI_item']
+items<-items[items!='BI_menu']
+items<-items[items!='BIxy_item']
+items<-items[items!='BIcor_item']
+items<-items[items!='BIcorm_item']
+items<-items[items!='BIcov_item']
+items<-items[items!='BIgra_item']
+items<-items[items!='BIgra_menu']
+items<-items[items!='BIken_item']
+items<-items[items!='BImcd_item']
+items<-items[items!='BIpar_item']
+items<-items[items!='BIrob_item']
+items<-items[items!='BIrob_menu']
+items<-items[items!='BIspe_item']
+items<-items[items!='BIspe_menu']
+items<-items[items!='BIsper_item']
+items<-items[items!='BIwidom_item']
+items<-items[items!='BIxyl_item']
+items<-items[items!='BIxyp_item']
+items<-items[items!='CAL_item']
+items<-items[items!='CAL_menu']
+items<-items[items!='CALmod_item']
+items<-items[items!='CALmod_menu']
+items<-items[items!='CALbi_item']
+items<-items[items!='CALcoe_item']
+items<-items[items!='CALexp_item']
+items<-items[items!='CALext_item']
+items<-items[items!='CALlod_item']
+items<-items[items!='CALpcr_item']
+items<-items[items!='CALpcrm_item']
+items<-items[items!='CALpcrv_item']
+items<-items[items!='CALpls1_item']
+items<-items[items!='CALpls1m_item']
+items<-items[items!='CALpls1v_item']
+items<-items[items!='CALpls2_item']
+items<-items[items!='CALpls2m_item']
+items<-items[items!='CALpls2v_item']
+items<-items[items!='CALpre_item']
+items<-items[items!='CALres_item']
+items<-items[items!='CALsco_item']
+items<-items[items!='CALwidom_item']
+items<-items[items!='CL_item']
+items<-items[items!='CL_menu']
+items<-items[items!='CLext_item']
+items<-items[items!='CLlda_item']
+items<-items[items!='CLmah_item']
+items<-items[items!='CLmet_item']
+items<-items[items!='CLmet_menu']
+items<-items[items!='CLplot_item']
+items<-items[items!='CLplot_menu']
+items<-items[items!='CLpre_item']
+items<-items[items!='CLwidom_item']
+items<-items[items!='DST_item']
+items<-items[items!='DST_menu']
+items<-items[items!='DSTeuc_item']
+items<-items[items!='DSTmah_item']
+items<-items[items!='DSTman_item']
+items<-items[items!='DSTmax_item']
+items<-items[items!='DSTmcd_item']
+items<-items[items!='DSTwidom_item']
+items<-items[items!='EX_item']
+items<-items[items!='EX_menu']
+items<-items[items!='EXload_item']
+items<-items[items!='EXsave_item']
+items<-items[items!='EXwidom_item']
+items<-items[items!='PCA_item']
+items<-items[items!='PCA_menu']
+items<-items[items!='PCApca_item']
+items<-items[items!='PCAaux_item']
+items<-items[items!='PCAaux_menu']
+items<-items[items!='PCAbi_item']
+items<-items[items!='PCAcon_item']
+items<-items[items!='PCAlodb_item']
+items<-items[items!='PCAcvar_item']
+items<-items[items!='PCAdiag_item']
+items<-items[items!='PCAdiag_menu']
+items<-items[items!='PCAeds_item']
+items<-items[items!='PCAevar_item']
+items<-items[items!='PCAext_item']
+items<-items[items!='PCAlods_item']
+items<-items[items!='PCAmdr_item']
+items<-items[items!='PCAmod_menu']
+items<-items[items!='PCAmod_item']
+items<-items[items!='PCApcs_item']
+items<-items[items!='PCAplot_item']
+items<-items[items!='PCAplot_menu']
+items<-items[items!='PCAsco_item']
+items<-items[items!='PCAtq_item']
+items<-items[items!='PCAtqd_item']
+items<-items[items!='PCAtvsq_item']
+items<-items[items!='PCAvar_item']
+items<-items[items!='PCAwidom_item']
+items<-items[items!='TR_item']
+items<-items[items!='TR_menu']
+items<-items[items!='TR01_item']
+items<-items[items!='TR11_item']
+items<-items[items!='TR1dc_item']
+items<-items[items!='TR1dr_item']
+items<-items[items!='TR2dc_item']
+items<-items[items!='TR2dr_item']
+items<-items[items!='TRautc_item']
+items<-items[items!='TRautr_item']
+items<-items[items!='TRcen_item']
+items<-items[items!='TRcenlg_item']
+items<-items[items!='TRisolg_item']
+items<-items[items!='TRlen_item']
+items<-items[items!='TRlog_item']
+items<-items[items!='TRmatc_item']
+items<-items[items!='TRmatc_menu']
+items<-items[items!='TRmatg_item']
+items<-items[items!='TRmatg_menu']
+items<-items[items!='TRmatr_item']
+items<-items[items!='TRmatr_menu']
+items<-items[items!='TRmax_item']
+items<-items[items!='TRpow_item']
+items<-items[items!='TRrcs_item']
+items<-items[items!='TRsca_item']
+items<-items[items!='TRsumc_item']
+items<-items[items!='TRsumr_item']
+items<-items[items!='TRwidom_item']
+items<-items[items!='UN_item']
+items<-items[items!='UN_menu']
+items<-items[items!='UNari_item']
+items<-items[items!='UNave_item']
+items<-items[items!='UNave_menu']
+items<-items[items!='UNbox_item']
+items<-items[items!='UNde_item']
+items<-items[items!='UNdisp_item']
+items<-items[items!='UNdisp_menu']
+items<-items[items!='UNeda_item']
+items<-items[items!='UNgeo_item']
+items<-items[items!='UNgra_item']
+items<-items[items!='UNgra_menu']
+items<-items[items!='UNhi_item']
+items<-items[items!='UNiqr_item']
+items<-items[items!='UNmad_item']
+items<-items[items!='UNmedi_item']
+items<-items[items!='UNrobu_item']
+items<-items[items!='UNrobu_menu']
+items<-items[items!='UNrobus_item']
+items<-items[items!='UNrobus_menu']
+items<-items[items!='UNrsd_item']
+items<-items[items!='UNsd_item']
+items<-items[items!='UNsmad_item']
+items<-items[items!='UNsp_item']
+items<-items[items!='UNsum_item']
+items<-items[items!='UNv_item']
+items<-items[items!='UNwidom_item']
+items<-items[items!='UNy_item']
+items<-items[items!='W3_item']
+items<-items[items!='W3_menu']
+items<-items[items!='W3con_item']
+items<-items[items!='W3ext_item']
+items<-items[items!='W3mod_item']
+items<-items[items!='W3obj_item']
+items<-items[items!='W3plot_item']
+items<-items[items!='W3plot_menu']
+items<-items[items!='W3rcon_item']
+items<-items[items!='W3robj_item']
+items<-items[items!='W3rvar_item']
+items<-items[items!='W3tri_item']
+items<-items[items!='W3var_item']
+items<-items[items!='W3widom_item']
+items<-items[items!='DH_item']
+items<-items[items!='DH_menu']
+items<-items[items!='DHcol_item']
+items<-items[items!='DHcsv_item']
+items<-items[items!='DHcsve_item']
+items<-items[items!='DHdatset_item']
+items<-items[items!='DHdatset_menu']
+items<-items[items!='DHexp_item']
+items<-items[items!='DHexp_menu']
+items<-items[items!='DHload_item']
+items<-items[items!='DHload_menu']
+items<-items[items!='DHrow_item']
+items<-items[items!='DHtxt_item']
+items<-items[items!='DHtxte_item']
+items<-items[items!='DHwidom_item']
+items<-items[items!='DHwork_item']
+items<-items[items!='DHxls_item']
+items<-items[items!='DOE_item']
+items<-items[items!='DOE_menu']
+items<-items[items!='DOEdopt_item']
+items<-items[items!='DOElev_item']
+items<-items[items!='DOEcoe_item']
+items<-items[items!='DOEecv_item']
+items<-items[items!='DOEexp_item']
+items<-items[items!='DOEmod_item']
+items<-items[items!='DOEplot_item']
+items<-items[items!='DOEplot_menu']
+items<-items[items!='DOEpre_item']
+items<-items[items!='DOEres_item']
+items<-items[items!='DOEresexp_item']
+items<-items[items!='DOEsur_item']
+items<-items[items!='DOEwidom_item']
+items<-items[items!='as.data.frame(M)']
+items<-items[items!='c']
+items<-items[items!='r']
+items<-items[items!='c1']
+items<-items[items!='c2']
+items<-items[items!='V']
+items<-items[items!='S1lim']
+items<-items[items!='S2lim']
+typ<-NULL;siz<-NULL
+if(length(items)>0){
+for(i in 1:length(items))typ<-c(typ,typeof(get(items[i])))
+for(i in 1:length(items))siz<-c(siz,object.size(get(items[i]))) 
+}else{items<-'';typ<-'';siz<-'';i<-0}
+mitems<-data.frame(Name=items,Type=typ,Size=siz)
+nitems<-ncol(mitems)
+rm(i,items,typ,siz)
+model<-rGtkDataFrame(mitems)
+view<-gtkTreeView(model)
+selection<-view$getSelection()
+selection$setMode("single")
+mapply(view$insertColumnWithAttributes,position=-1,title=colnames(model),
+cell=list(gtkCellRendererText()),text=seq_len(nitems)-1)
+scrolled_window<-gtkScrolledWindow()
+scrolled_window$add(view)
+table<-gtkTable(row=11,columns=2,homogeneous=FALSE)
+submit_hbox<-gtkHBox()
+button_close<-gtkButton("Close")
+button_del<-gtkButton("Delete")
+button_tell<-gtkButton("Tell Me")
+button_copy<-gtkButton("Copy")
+button_merge<-gtkButton("Merge")
+button_tran<-gtkButton("Transp.")
+button_mod<-gtkButton("Modify")
+button_new<-gtkButton("New")
+gSignalConnect(button_del,signal="clicked",f=function(button_del){
+ selected<-selection$getSelected()
+ if(selected[[1]]){
+ name.selected<-with(selected,model$getValue(iter,0)$value)
+ rm(list=name.selected,envir=.GlobalEnv)
+ print(paste(as.character(name.selected),'removed from memory'))  }
+ iter<-selected$iter
+ path<-model$getPath(iter)
+ i<-path$getIndices()[[1]]
+ mitems<-mitems[-(i+1),]
+ nitems<-nitems-1
+ assign('mitems',mitems,envir=.GlobalEnv)
+ assign('nitems',nitems,envir=.GlobalEnv)
+ model$setFrame(mitems)
+ return(TRUE)})
+gSignalConnect(button_close,signal="clicked",f=function(button_close){
+ gtkMainQuit()
+ window$Destroy()
+return(TRUE)})
+gSignalConnect(button_tell,signal="clicked",f=function(button_tell){
+ selected<-selection$getSelected()
+ if(selected[[1]]){
+ name.selected<-with(selected,model$getValue(iter,0)$value)
+ tellme(name.selected)
+ gtkMainQuit()
+ window$Destroy()}
+return(TRUE)})
+gSignalConnect(button_copy,signal="clicked",f=function(button_copy){
+ selected<-selection$getSelected()
+ if(selected[[1]]){
+ name.selected<-with(selected,model$getValue(iter,0)$value)
+ copyme(name.selected)
+ gtkMainQuit()
+ window$Destroy()}
+return(TRUE)})
+gSignalConnect(button_mod,signal="clicked",f=function(button_mod){
+ selected<-selection$getSelected()
+ if(selected[[1]]){
+ name.selected<-with(selected,model$getValue(iter,0)$value)
+ modifyme(name.selected)
+ gtkMainQuit()
+ window$Destroy()}
+return(TRUE)})
+gSignalConnect(button_new,signal="clicked",f=function(button_new){
+ newme()
+ gtkMainQuit()
+ window$Destroy()
+return(TRUE)})
+gSignalConnect(button_merge,signal="clicked",f=function(button_merge){
+ selected<-selection$getSelected()
+ name.selected<-with(selected,model$getValue(iter,0)$value)
+ mergeme(name.selected)
+ gtkMainQuit()
+ window$Destroy()
+return(TRUE)})
+gSignalConnect(button_tran,signal="clicked",f=function(button_tran){
+ selected<-selection$getSelected()
+ name.selected<-with(selected,model$getValue(iter,0)$value)
+ transposeme(name.selected)
+ gtkMainQuit()
+ window$Destroy()
+return(TRUE)})
+submit_hbox$packStart(button_copy,expand=TRUE)
+submit_hbox$packStart(button_del,expand=TRUE)
+submit_hbox$packStart(button_merge,expand=TRUE)
+submit_hbox$packStart(button_mod,expand=TRUE)
+submit_hbox$packStart(button_new,expand=TRUE)
+submit_hbox$packStart(button_tell,expand=TRUE)
+submit_hbox$packEnd(button_tran,expand=TRUE)
+table$attach(scrolled_window,left.attach=0,2,top.attach=0,9,xoptions=c('expand','fill'),yoptions=c('expand','fill'))
+table$attach(submit_hbox,left.attach=0,2,top.attach=9,10,xoptions=c('expand','fill'),yoptions='')
+table$attach(button_close,left.attach=0,2,top.attach=10,11,xoptions=c('expand','fill'),yoptions='')
+table$setColSpacing(0,10)
+window<-gtkWindow(show=FALSE)
+window$setDefaultSize(300,500)
+window$SetDeletable(FALSE)
+window['border-width']<-14
+window$setTitle('WorkSpace')
+window$add(table)
+window$showAll()
+gtkMain()
+rm(mitems,nitems,button_close,button_del,button_copy,button_tran,button_tell,
+button_mod,button_new,model,scrolled_window,selection,submit_hbox,table,view,
+window,copyme,tellme,transposeme,modifyme,newme)

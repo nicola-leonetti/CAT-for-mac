@@ -1,0 +1,11 @@
+# Windows installer (download it from gruppochemiometria.it when updating, see README)
+setup_CAT.exe
+*.exe
+# innoextract built by tools/update_from_installer.sh
+tools/bin/
+# package created by make_package.sh
+CAT-for-mac.zip
+# R and macOS leftovers
+.RData
+.Rhistory
+.DS_Store
